@@ -174,15 +174,25 @@ void panel_init(void)
     REG32(PANEL_TX_STREAM) = DMA_CR_EN | DMA_CR_DIR_M2P | DMA_CR_CIRC | DMA_CR_MINC;
 }
 
+static void process_half(int first)
+{
+    for (int f = first; f < first + 8; f++) process_frame(f);
+}
+
 void panel_poll(void)
 {
     uint32_t flags = REG32(DMA2); /* LISR; reading also advances transfers */
-    if (flags & PANEL_HT_FLAG) {
-        REG32(DMA2 + 8) = PANEL_HT_FLAG;
-        for (int f = 0; f < 8; f++) process_frame(f);
-    }
-    if (flags & PANEL_TC_FLAG) {
-        REG32(DMA2 + 8) = PANEL_TC_FLAG;
-        for (int f = 8; f < 16; f++) process_frame(f);
+    if (!(flags & (PANEL_HT_FLAG | PANEL_TC_FLAG))) return;
+    REG32(DMA2 + 8) = flags & (PANEL_HT_FLAG | PANEL_TC_FLAG);
+    if ((flags & (PANEL_HT_FLAG | PANEL_TC_FLAG)) == (PANEL_HT_FLAG | PANEL_TC_FLAG)) {
+        /* Fell a whole half-buffer behind: both halves are pending and one
+         * is older. The remaining transfer count says which half the DMA
+         * filled last; apply the older half first so a button edge is not
+         * replayed out of order (a stale "down" after the fresh "up"). */
+        bool first_half_fresh = REG32(PANEL_RX_STREAM + 4) <= PANEL_FRAMES * 4;
+        process_half(first_half_fresh ? 8 : 0);
+        process_half(first_half_fresh ? 0 : 8);
+    } else {
+        process_half(flags & PANEL_HT_FLAG ? 0 : 8);
     }
 }
