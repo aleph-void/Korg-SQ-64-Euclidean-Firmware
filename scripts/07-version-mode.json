@@ -7,6 +7,10 @@
     { "type": "wait", "ms": 8000 },
     { "type": "button", "control": "global", "down": false },
     { "type": "wait", "ms": 4000 },
+    { "type": "button", "control": "play", "down": true },
+    { "type": "wait", "ms": 200 },
+    { "type": "button", "control": "play", "down": false },
+    { "type": "wait", "ms": 8000 },
     { "type": "power-off" }
   ]
 }

@@ -13,6 +13,7 @@
 #include "board.h"
 #include "display.h"
 #include "midi.h"
+#include "panel.h"
 #include "storage.h"
 
 #define PAYLOAD_SIZE 0x38000u
@@ -329,11 +330,29 @@ void version_main(void)
     fb_text(60, 20, ".", 12);
     fb_number(66, 20, FW_VERSION_MINOR, 12);
     fb_text(4, 40, "ORIGINAL EUCLIDEAN FIRMWARE", 8);
+    fb_text(4, 52, "PRESS PLAY TO CONTINUE", 8);
     display_flush();
     midi_init(updater_sysex, 0); /* version requests are answered here too */
+    /* BOOT-004: the PLAY indicator is lit while version mode is active, and
+     * pressing PLAY continues the normal boot sequence (we return and
+     * main_entry falls through to normal_main). */
+    panel_init();
+    panel_transport_leds(false, false, false, true);
     bool power_released = false;
     for (;;) {
         midi_poll();
+        panel_poll();
+        panel_event_t ev;
+        while (panel_event_next(&ev)) {
+            if (ev.sw == SW_PLAY && ev.down) {
+                /* Stop the circular scan so normal_main's panel_init
+                 * reconfigures idle streams, then clear its event flags. */
+                REG32(PANEL_TX_STREAM) = 0;
+                REG32(PANEL_RX_STREAM) = 0;
+                REG32(DMA2 + 8) = PANEL_HT_FLAG | PANEL_TC_FLAG;
+                return;
+            }
+        }
         display_pump();
         bool pressed = !(GPIO_IDR(GPIOC) & (1u << PIN_POWER_BTN));
         if (power_released && pressed)

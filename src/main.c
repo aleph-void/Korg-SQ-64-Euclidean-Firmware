@@ -641,7 +641,9 @@ void main_entry(void)
     GPIO_MODER(GPIOC) |= 1u << (2 * PIN_GATE_C);
 
     /* Startup chords (BOOT-004): GLOBAL alone selects version mode,
-     * GLOBAL+PATTERN selects update mode. Anything else boots normally. */
+     * GLOBAL+PATTERN selects update mode. Anything else boots normally.
+     * Version mode returns when PLAY is pressed, continuing the normal
+     * boot sequence below. */
     uint32_t rows[8];
     panel_startup_scan(rows);
     bool global_held = (rows[SW_ROW(SW_GLOBAL)] >> SW_BIT(SW_GLOBAL)) & 1u;

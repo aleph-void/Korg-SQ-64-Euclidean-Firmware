@@ -285,6 +285,33 @@ def test_version_mode(image):
     replies = sysex_frames(h.exchange(frame(0x04, [0] * 16)))
     expect(any(f[6] == 0x05 and f[7] != 0 for f in replies), 'begin rejected outside update mode')
 
+    # BOOT-004 `version-play-indicator`: the PLAY indicator is lit while
+    # version mode is active. Row-1 scan TX frames (byte 2 == 0x02) carry the
+    # transport aux byte; PLAY is the active-low 0x10 bit of byte 7.
+    panel = h.machine.board.panel
+    panel.tx.clear()
+    h.run(400000)
+    row1 = [bytes(panel.tx[i:i + 8]) for i in range(0, len(panel.tx) - 7, 8)
+            if panel.tx[i + 2] == 0x02]
+    expect(bool(row1) and all(not (f[7] & 0x10) for f in row1),
+           'PLAY indicator lit in version mode')
+
+    # BOOT-004 `version-play-continue`: pressing PLAY continues the normal
+    # boot sequence to the ready state (tick interrupts running, transport
+    # answering MIDI start/stop, display refreshing).
+    set_row(h, 7, 0)       # release the boot chord's residual scan bits
+    set_row(h, 1, 1 << 1)  # PLAY
+    set_row(h, 1, 0, 1500000)
+    report = h.run(800000)
+    expect(not report['critical']['terminated'], 'no critical hazard continuing boot')
+    expect(report['interrupts']['delivered'] > 10,
+           'PLAY continued boot: tick interrupts delivered')
+    h.din_bytes()
+    data = h.exchange([0xFA], 3000000)
+    expect(0xFA in data and 0xF8 in data and any(0x90 <= b <= 0x99 for b in data),
+           'PLAY continued boot: sequencer ready (start, clock, notes)')
+    h.exchange([0xFC], 500000)
+
 
 def test_update_mode(image):
     print('-- update boot chord (GLOBAL+PATTERN)')

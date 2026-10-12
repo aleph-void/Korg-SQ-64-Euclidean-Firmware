@@ -53,7 +53,9 @@ from stock firmware.**
   only after the stored bytes read back verified. The fitted SPI capacity is
   probed via JEDEC, and slots beyond it are refused rather than aliased.
 - Boot chords per the spec: hold **GLOBAL** at power-on for version mode,
-  **GLOBAL+PATTERN** for update mode.
+  **GLOBAL+PATTERN** for update mode. In version mode the PLAY indicator is
+  lit, and pressing **PLAY** continues the normal boot sequence to the
+  ready state (BOOT-004).
 - A complete self-updater in update mode (VUP SysEx protocol 1, 1024-byte
   packets, over USB MIDI or DIN): it buffers the whole 0x38000-byte system
   payload in RAM, validates geometry, reset vectors and all four region
