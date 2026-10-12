@@ -1,0 +1,59 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 09: project save, load, delete, new",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+
+    { "type": "press", "control": "B7", "ms": 150 },
+    { "type": "wait", "ms": 1000 },
+
+    { "type": "press", "control": "project", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "wait", "ms": 300 },
+    { "type": "press", "control": "A1", "ms": 150 },
+    { "type": "wait", "ms": 300 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "wait", "ms": 300 },
+    { "type": "press", "control": "D16", "ms": 150 },
+    { "type": "wait", "ms": 300 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "press", "control": "B3", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "press", "control": "project", "ms": 150 },
+    { "type": "wait", "ms": 1000 },
+    { "type": "press", "control": "B12", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "press", "control": "project", "ms": 150 },
+    { "type": "wait", "ms": 1000 },
+    { "type": "press", "control": "A1", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "button", "control": "record", "down": true },
+    { "type": "wait", "ms": 300 },
+    { "type": "press", "control": "D16", "ms": 150 },
+    { "type": "wait", "ms": 300 },
+    { "type": "button", "control": "record", "down": false },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "wait", "ms": 300 },
+    { "type": "press", "control": "project", "ms": 150 },
+    { "type": "wait", "ms": 300 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 2000 },
+
+    { "type": "press", "control": "project", "ms": 150 },
+    { "type": "wait", "ms": 3000 }
+  ]
+}

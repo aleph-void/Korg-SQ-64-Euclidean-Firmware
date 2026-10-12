@@ -185,12 +185,16 @@ void panel_poll(void)
     if (!(flags & (PANEL_HT_FLAG | PANEL_TC_FLAG))) return;
     REG32(DMA2 + 8) = flags & (PANEL_HT_FLAG | PANEL_TC_FLAG);
     if ((flags & (PANEL_HT_FLAG | PANEL_TC_FLAG)) == (PANEL_HT_FLAG | PANEL_TC_FLAG)) {
-        /* Fell a whole half-buffer behind: both halves are pending and one
-         * is older. The remaining transfer count says which half the DMA
-         * filled last; apply the older half first so a button edge is not
-         * replayed out of order (a stale "down" after the fresh "up"). */
+        /* Fell a whole half-buffer (or more) behind: both halves are pending
+         * and the scan may refill either one at any point during this poll,
+         * so the "older" half can hold a snapshot from before an edge the
+         * fresh half already carries — replaying it resurrects the previous
+         * state and turns one press into several. Every row appears in each
+         * half, so decode only the half the DMA finished last (per the
+         * remaining transfer count) and drop the stale one; a state change
+         * that persists is in the fresh half, and one that reversed within
+         * the lost half-sweep (~0.3 ms) is below any real button edge. */
         bool first_half_fresh = REG32(PANEL_RX_STREAM + 4) <= PANEL_FRAMES * 4;
-        process_half(first_half_fresh ? 8 : 0);
         process_half(first_half_fresh ? 0 : 8);
     } else {
         process_half(flags & PANEL_HT_FLAG ? 0 : 8);

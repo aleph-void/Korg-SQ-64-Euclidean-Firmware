@@ -35,4 +35,30 @@ void settings_defaults(settings_t *s);
 bool settings_load(settings_t *s);
 void settings_save(const settings_t *s);
 
+/* Saved project slots (board contract): slot n is the 0x3d000-byte region at
+ * 0xc0000 + n*0x3d000, the same catalog stock firmware uses for its saved
+ * projects. This firmware stores one project record (the workspace: patterns,
+ * tempo, swing) in the first 4 KiB sector of a slot and never touches the
+ * rest of the region. Slots past the end of the fitted SPI part (JEDEC
+ * capacity) are unavailable rather than silently aliased. */
+#define PROJECT_SLOTS 64
+#define PROJECT_BASE 0xc0000u
+#define PROJECT_SLOT_BYTES 0x3d000u
+#define PROJECT_ADDR(slot) (PROJECT_BASE + (uint32_t)(slot) * PROJECT_SLOT_BYTES)
+
+typedef enum {
+    SLOT_EMPTY,       /* erased: no record            */
+    SLOT_VALID,       /* committed project record     */
+    SLOT_INVALID,     /* unreadable: never loaded     */
+    SLOT_UNAVAILABLE, /* beyond the fitted SPI part   */
+} slot_state_t;
+
+int project_slots_available(void);
+slot_state_t project_state(int slot);
+/* Copies the record into *out only when the slot is SLOT_VALID. */
+slot_state_t project_load(int slot, settings_t *out);
+/* Both report success only after the stored bytes read back verified. */
+bool project_save(int slot, const settings_t *s);
+bool project_delete(int slot);
+
 #endif

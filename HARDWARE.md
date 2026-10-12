@@ -58,11 +58,13 @@ under any circumstances.
 ## 2. Back up the device
 
 This firmware does not implement the stock backup/restore SysEx transport,
-and although its installer only writes the regions listed in the
-[storage map](README.md#storage-map) (stock saved projects live elsewhere in
-SPI flash and are not written), the storage ownership map is one of the
-spec's unverified areas. Take a full backup while stock firmware is still
-installed:
+and its project mode writes into the **same 64-slot saved-project catalog
+stock firmware uses** (SPI 0xc0000 onward, per the board contract): saving
+or deleting a project slot overwrites the first 4 KiB of that stock slot
+region, destroying any stock project saved there. The installer itself only
+writes the regions listed in the [storage map](README.md#storage-map), and
+the storage ownership map remains one of the spec's unverified areas. Take
+a full backup while stock firmware is still installed:
 
 1. Boot the SQ-64 normally and connect USB.
 2. In the web app's backup tool: **Enable MIDI access**, grant SysEx
@@ -130,6 +132,17 @@ Connections:
   start/stop is honored; incoming clock sync is **not** implemented, nor is
   the analog sync jack.
 
+Projects:
+
+- **PROJECT** toggles project mode: the 64 pads become the 64 saved project
+  slots (bank A pad 1 = slot 1 … bank D pad 16 = slot 64; lit = saved). Pad
+  loads a slot, SHIFT+pad saves the workspace to it, RECORD+pad deletes it,
+  and SHIFT+PROJECT starts a new project from the declared defaults. Empty
+  or invalid slots are reported on the display and never touch the
+  workspace; SAVED/DELETED appear only after the flash contents read back
+  verified. **Slots are shared with the stock saved-project catalog** — see
+  the backup warning above.
+
 Persistence:
 
 - **GLOBAL** commits the current settings (patterns, tempo, swing, notes) to
@@ -140,8 +153,9 @@ Persistence:
   otherwise idle on flash, there is no reason to interrupt a write.
 
 What the firmware will and will not write is listed in the
-[storage map](README.md#storage-map). In particular it never touches the
-stock saved-project area, but see the backup caveat above.
+[storage map](README.md#storage-map). Note that explicit project saves and
+deletes write into the stock saved-project catalog; nothing else does, and
+nothing writes outside the listed regions.
 
 ## 5. Going back to stock
 

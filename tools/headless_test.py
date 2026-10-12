@@ -9,6 +9,13 @@ programming itself is exercised only in the browser workbench, which models
 the host-granted installation context; the native engine keeps unconditional
 flash protection.
 
+Project mode is exercised against this engine's 1 MiB SPI model, where only
+saved-project slot 0 fits: the JEDEC capacity probe must keep the firmware
+inside the part (the model faults any out-of-range address), slot 0 must
+save, load and delete, and the unavailable slot 1 must be refused without a
+flash write. Full 64-slot coverage lives in tools/browser_panel_test.mjs
+against the 16 MiB browser model.
+
 Usage: python3 tools/headless_test.py [--emulator ../../emulator] [--image build/euclidean.vsb]
 """
 import argparse
@@ -124,6 +131,92 @@ def test_normal_mode(image):
     expect(frames > 0, f'display frames rendered ({frames})')
 
 
+PROJECT_SLOT0 = 0xC0000
+SETTINGS_ADDR = 0x40000
+
+
+def set_row(h, row, value, instructions=600000):
+    """Drive one decoded scan row and run; encode_row(0) releases it."""
+    group = row * 6
+    h.machine.board.panel.rx[group:group + 6] = encode_row(value)
+    h.run(instructions)
+
+
+def test_project_mode(image):
+    print('-- project mode (1 MiB SPI part: slot 0 only)')
+    h = boot(image)
+    h.run(1500000)
+    flash = h.machine.board.flash
+    # Give the workspace a distinct edit first: pad B7 (row 6, bit 25).
+    set_row(h, 6, 1 << 25)
+    set_row(h, 6, 0)
+    before = bytes(flash.data)
+
+    # PROJECT (row 6, bit 17) enters project mode; the slot rescan must stay
+    # inside the 1 MiB part (the model faults out-of-range SPI addresses).
+    set_row(h, 6, 1 << 17)
+    set_row(h, 6, 0)
+    expect(bytes(flash.data) == before, 'entering project mode writes nothing')
+
+    # SHIFT (row 7, bit 17) + pad A1 (row 0, bit 26) saves slot 0.
+    set_row(h, 7, 1 << 17)
+    set_row(h, 0, 1 << 26)
+    set_row(h, 0, 0)
+    set_row(h, 7, 0)
+    record = bytes(flash.data[PROJECT_SLOT0:PROJECT_SLOT0 + 32])
+    expect(record[:4] == b'EUPJ', 'slot 0 holds a project record')
+    expect(record[8 + 5] == 16 and record[8 + 5 + 1] == 7,
+           'saved record carries the edited workspace (track B E(7,16))')
+    changed = {i for i, (a, b) in enumerate(zip(before, bytes(flash.data))) if a != b}
+    expect(changed and all(PROJECT_SLOT0 <= i < PROJECT_SLOT0 + 0x1000 for i in changed),
+           'save touched only the slot-0 sector')
+
+    # Pad A2 (row 1, bit 26) is slot 1: beyond the 1 MiB part, so the load is
+    # refused without any flash mutation.
+    saved = bytes(flash.data)
+    writes = flash.writes
+    set_row(h, 1, 1 << 26)
+    set_row(h, 1, 0)
+    expect(flash.writes == writes and bytes(flash.data) == saved,
+           'unavailable slot refused without a flash write')
+
+    # Change the workspace (new project via SHIFT+PROJECT), then load slot 0
+    # back and commit settings with GLOBAL after leaving project mode; the
+    # committed settings prove the load restored the saved workspace.
+    set_row(h, 7, 1 << 17)
+    set_row(h, 6, 1 << 17)
+    set_row(h, 6, 0)
+    set_row(h, 7, 0)
+    expect(bytes(flash.data) == saved, 'new project writes no slot')
+    set_row(h, 0, 1 << 26)  # load slot 0
+    set_row(h, 0, 0)
+    set_row(h, 6, 1 << 17)  # leave project mode
+    set_row(h, 6, 0)
+    set_row(h, 6, 1 << 18)  # GLOBAL commit
+    set_row(h, 6, 0, 1200000)
+    settings = bytes(flash.data[SETTINGS_ADDR:SETTINGS_ADDR + 32])
+    expect(settings[:4] == b'EUC1' and settings[8 + 5] == 16 and settings[8 + 5 + 1] == 7,
+           'loaded project restored the workspace (committed settings match)')
+
+    # RECORD (row 1, bit 0) + pad A1 deletes slot 0.
+    set_row(h, 6, 1 << 17)  # back into project mode
+    set_row(h, 6, 0)
+    set_row(h, 1, 1 << 0)
+    set_row(h, 0, 1 << 26)
+    set_row(h, 0, 0)
+    set_row(h, 1, 0)
+    sector = bytes(flash.data[PROJECT_SLOT0:PROJECT_SLOT0 + 0x1000])
+    expect(sector == bytes([255]) * 0x1000, 'delete left slot 0 erased')
+    writes = flash.writes
+    set_row(h, 1, 1 << 0)   # repeated delete of the now-empty slot
+    set_row(h, 0, 1 << 26)
+    set_row(h, 0, 0)
+    set_row(h, 1, 0)
+    expect(flash.writes == writes, 'repeated delete of an empty slot writes nothing')
+    report = h.run(200000)
+    expect(not report['critical']['terminated'], 'no critical hazard in project mode')
+
+
 def test_version_mode(image):
     print('-- version boot chord (GLOBAL)')
     h = boot(image, {6: 1 << 18})
@@ -173,6 +266,7 @@ def main():
     sys.path.insert(0, str(args.emulator.resolve()))
     image = args.image.read_bytes()
     test_normal_mode(image)
+    test_project_mode(image)
     test_version_mode(image)
     test_update_mode(image)
     print('all headless checks passed')

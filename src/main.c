@@ -6,6 +6,11 @@
  * (SHIFT+pad sets length), encoders edit tempo/swing/pulses/length/rotation/
  * note, GLOBAL commits settings to SPI flash, and the power button saves and
  * shuts down cleanly.
+ *
+ * PROJECT toggles project mode, where the 64 pads manage the 64 saved
+ * project slots of the board contract's catalog: pad = load, SHIFT+pad =
+ * save, RECORD+pad = delete. SHIFT+PROJECT starts a new project (workspace
+ * back to the declared defaults) without touching any saved slot.
  */
 #include <stdbool.h>
 
@@ -37,6 +42,13 @@ static uint32_t beat_flash_ms;
 static uint32_t tap_last_ms;
 static bool ui_dirty = true;
 static volatile bool rt_start, rt_stop;
+
+/* Project mode (PROJECT button): the 64 pads select the 64 saved project
+ * slots, bank A pad 1 = slot 0 .. bank D pad 16 = slot 63. */
+static bool project_mode;
+static uint8_t slot_states[PROJECT_SLOTS];
+static const char *proj_msg = "";
+static int proj_msg_slot = -1; /* -1: no slot in the message */
 
 static uint32_t now256(void) { return g_ms << 8; }
 
@@ -160,12 +172,73 @@ static void handle_pad(int track, int pad0, bool shift)
     ui_dirty = true;
 }
 
+static void project_rescan(void)
+{
+    for (int n = 0; n < PROJECT_SLOTS; n++)
+        slot_states[n] = (uint8_t)project_state(n);
+}
+
+static void project_report(int slot, const char *message)
+{
+    proj_msg = message;
+    proj_msg_slot = slot;
+    ui_dirty = true;
+}
+
+static void project_pad(int slot)
+{
+    if (panel_down(SW_SHIFT)) {
+        if (project_save(slot, &cfg)) {
+            slot_states[slot] = SLOT_VALID;
+            project_report(slot, "SAVED");
+        } else {
+            slot_states[slot] = (uint8_t)project_state(slot);
+            project_report(slot, slot_states[slot] == SLOT_UNAVAILABLE
+                           ? "NO SLOT" : "SAVE FAILED");
+        }
+        return;
+    }
+    if (panel_down(SW_RECORD)) {
+        if (project_delete(slot)) {
+            slot_states[slot] = SLOT_EMPTY;
+            project_report(slot, "DELETED");
+        } else {
+            slot_states[slot] = (uint8_t)project_state(slot);
+            project_report(slot, slot_states[slot] == SLOT_UNAVAILABLE
+                           ? "NO SLOT" : "DELETE FAILED");
+        }
+        return;
+    }
+    settings_t loaded;
+    switch (project_load(slot, &loaded)) {
+    case SLOT_VALID:
+        cfg = loaded;
+        project_report(slot, "LOADED");
+        break;
+    case SLOT_EMPTY: project_report(slot, "EMPTY"); break;
+    case SLOT_INVALID: project_report(slot, "INVALID"); break;
+    default: project_report(slot, "NO SLOT"); break;
+    }
+}
+
 static void handle_events(void)
 {
     panel_event_t ev;
     while (panel_event_next(&ev)) {
         if (!ev.down) continue;
         switch (ev.sw) {
+        case SW_PROJECT:
+            if (panel_down(SW_SHIFT)) {
+                /* New project: the workspace returns to the declared
+                 * defaults; no saved slot or committed settings change. */
+                settings_defaults(&cfg);
+                project_report(-1, "NEW PROJECT");
+            } else {
+                project_mode = !project_mode;
+                if (project_mode) project_rescan();
+                project_report(-1, "");
+            }
+            continue;
         case SW_PLAY: transport_start(); continue;
         case SW_STOP: transport_stop(); continue;
         case SW_TAP: {
@@ -179,17 +252,25 @@ static void handle_events(void)
             tap_last_ms = now;
             continue;
         }
-        case SW_TRACK_A: cfg.selected = 0; ui_dirty = true; continue;
-        case SW_TRACK_B: cfg.selected = 1; ui_dirty = true; continue;
-        case SW_TRACK_C: cfg.selected = 2; ui_dirty = true; continue;
-        case SW_TRACK_D: cfg.selected = 3; ui_dirty = true; continue;
-        case SW_GLOBAL: settings_save(&cfg); ui_dirty = true; continue;
+        case SW_TRACK_A: if (!project_mode) { cfg.selected = 0; ui_dirty = true; } continue;
+        case SW_TRACK_B: if (!project_mode) { cfg.selected = 1; ui_dirty = true; } continue;
+        case SW_TRACK_C: if (!project_mode) { cfg.selected = 2; ui_dirty = true; } continue;
+        case SW_TRACK_D: if (!project_mode) { cfg.selected = 3; ui_dirty = true; } continue;
+        case SW_GLOBAL: if (!project_mode) { settings_save(&cfg); ui_dirty = true; } continue;
         default: break;
         }
         for (int t = 0; t < 4; t++)
             for (int p = 0; p < 16; p++)
-                if (pad_switch(t, p) == ev.sw)
-                    handle_pad(t, p, panel_down(SW_SHIFT));
+                if (pad_switch(t, p) == ev.sw) {
+                    if (project_mode) project_pad(t * 16 + p);
+                    else handle_pad(t, p, panel_down(SW_SHIFT));
+                }
+    }
+    if (project_mode) {
+        /* Pads are slot selectors here; drop encoder motion so it does not
+         * accumulate and edit the workspace invisibly. */
+        for (int e = 0; e < ENC_COUNT; e++) panel_encoder_take(e);
+        return;
     }
     track_cfg_t *c = &cfg.track[cfg.selected];
     int d;
@@ -230,6 +311,21 @@ static void handle_events(void)
 static void update_leds(void)
 {
     uint32_t rows[8];
+    if (project_mode) {
+        /* Pad LED n of bank t lights when slot t*16+n holds a project. */
+        for (int t = 0; t < 4; t++) {
+            uint32_t cols = 0;
+            for (int p = 0; p < 16; p++)
+                if (slot_states[t * 16 + p] == SLOT_VALID)
+                    cols |= 2u << p;
+            rows[t * 2] = cols;
+            rows[t * 2 + 1] = 0;
+        }
+        rows[6] |= 1u << 17; /* PROJECT mode LED */
+        panel_led_columns(rows);
+        panel_transport_leds(false, !playing, panel_down(SW_RECORD), playing);
+        return;
+    }
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *c = &cfg.track[t];
         uint32_t cols = euclid_pattern(c) << 1; /* pads on columns 1..16 */
@@ -249,8 +345,46 @@ static const char *const NOTE_NAMES[12] = {
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 };
 
+static void draw_project_ui(void)
+{
+    fb_clear();
+    fb_text(2, 1, "PROJECT", 15);
+    if (proj_msg_slot >= 0) {
+        fb_text(80, 1, (const char[]){(char)('A' + proj_msg_slot / 16), 0}, 15);
+        fb_number(86, 1, proj_msg_slot % 16 + 1, 15);
+        fb_text(104, 1, proj_msg, 12);
+    } else {
+        fb_text(80, 1, proj_msg, 12);
+    }
+    fb_text(2, 12, "PAD LOAD", 8);
+    fb_text(68, 12, "SHIFT+PAD SAVE", 8);
+    fb_text(160, 12, "REC+PAD DELETE", 8);
+
+    /* Slot catalog: one lane per bank, filled = saved project, baseline =
+     * empty, half fill = invalid, nothing = beyond the fitted SPI part. */
+    for (int t = 0; t < 4; t++) {
+        int y = 24 + t * 8;
+        fb_text(2, y, (const char[]){(char)('A' + t), 0}, 6);
+        for (int p = 0; p < 16; p++) {
+            int x = 14 + p * 9;
+            switch (slot_states[t * 16 + p]) {
+            case SLOT_VALID: fb_fill(x, y, 7, 6, 13); break;
+            case SLOT_EMPTY: fb_fill(x, y + 2, 7, 2, 3); break;
+            case SLOT_INVALID: fb_fill(x, y + 1, 7, 4, 7); break;
+            default: break;
+            }
+        }
+    }
+    fb_text(168, 57, "SHIFT+PROJ NEW", 5);
+    display_flush();
+}
+
 static void draw_ui(void)
 {
+    if (project_mode) {
+        draw_project_ui();
+        return;
+    }
     const track_cfg_t *c = &cfg.track[cfg.selected];
     fb_clear();
     fb_text(2, 1, "EUCLID", 15);

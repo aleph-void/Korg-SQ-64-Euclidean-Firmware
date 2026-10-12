@@ -30,6 +30,15 @@ from stock firmware.**
   shows all four lanes plus the edited track's parameters.
 - Settings persist to SPI flash (GLOBAL commits; the power button saves and
   shuts down cleanly through the PB7 power hold).
+- Full project lifecycle over the board contract's 64-slot saved-project
+  catalog (spec PROJECT-001..004): PROJECT enters project mode, where the 64
+  pads map 1:1 to the 64 slots (bank A pad 1 = slot 0 … bank D pad 16 =
+  slot 63). Pad = load, SHIFT+pad = save, RECORD+pad = delete,
+  SHIFT+PROJECT = new project (workspace back to the declared defaults).
+  Slot LEDs show the catalog; empty and invalid slots are reported on the
+  display and never change the workspace; save/delete confirmations appear
+  only after the stored bytes read back verified. The fitted SPI capacity is
+  probed via JEDEC, and slots beyond it are refused rather than aliased.
 - Boot chords per the spec: hold **GLOBAL** at power-on for version mode,
   **GLOBAL+PATTERN** for update mode.
 - A complete self-updater in update mode (VUP SysEx protocol 1, 1024-byte
@@ -52,7 +61,24 @@ from stock firmware.**
 | Tempo / swing encoders | BPM / swing |
 | Param 1–4 encoders | Pulses, length, rotation, note |
 | GLOBAL | Commit settings to SPI flash |
+| PROJECT | Enter / leave project mode |
+| SHIFT + PROJECT | New project: workspace back to the declared defaults |
 | Power button | Save and shut down |
+
+In project mode the pads stop editing patterns and address the 64 saved
+project slots instead (slot = bank × 16 + pad − 1):
+
+| Control | Action |
+| --- | --- |
+| Pad *n* | Load that slot (an empty or invalid slot is reported, workspace unchanged) |
+| SHIFT + pad *n* | Save the workspace to that slot |
+| RECORD + pad *n* | Delete that slot |
+| PLAY / STOP / TAP | Transport keeps working |
+
+A project records the whole workspace: all four track patterns, tempo,
+swing and the selected track. Loading one replaces the workspace; it does
+not touch the committed settings until the next GLOBAL commit or
+power-button shutdown.
 
 ## Build
 
@@ -81,8 +107,8 @@ exercise the updater; the usual critical flash guards stay active.
 Importable demo scripts for the workbench's **UI scripts** panel live in
 [`scripts/`](scripts/README.md); they walk through every
 major function (transport, tap tempo, pattern editing, polymeter, swing,
-MIDI remote start/stop, settings persistence, version mode and a full
-self-update).
+MIDI remote start/stop, settings persistence, project management, version
+mode and a full self-update).
 
 To put it on a physical SQ-64 — including backing up first and getting back
 to stock firmware — see [HARDWARE.md](HARDWARE.md) and its warnings.
@@ -100,6 +126,10 @@ make smoke      # 2M instructions, report in build/smoke.json
   start/clock/notes/stop, version and update boot chords, VUP discovery /
   version / begin, ordered packets, and rejection of out-of-order packets,
   wrong blocks, and installs outside update mode — with zero flash writes.
+  Project mode runs against this engine's 1 MiB SPI model: the JEDEC
+  capacity probe must confine the catalog to slot 0 (the model faults any
+  out-of-range address), which is saved, loaded back, deleted and
+  re-deleted, while the unavailable slot 1 is refused without a write.
 - `tools/browser_update_test.mjs` (browser WASM engine): full end-to-end
   installation — update-mode boot via the panel chord, USB MIDI enumeration,
   all 224 packets through the firmware's own updater under the workbench's
@@ -108,7 +138,12 @@ make smoke      # 2M instructions, report in build/smoke.json
 - `tools/browser_panel_test.mjs` (browser WASM engine): DMA panel scanning,
   pad/encoder/transport input, pattern LEDs, gate/trigger/CV observers, MIDI
   output, GLOBAL commit, power-button shutdown, and settings persistence
-  across a cold restart.
+  across a cold restart. The full project lifecycle runs against the 16 MiB
+  model: saves to the first, middle and last slot with byte-exact
+  untouched-slot guards, exact load-back, empty- and corrupted-slot
+  rejection with the workspace proven unchanged, delete (and repeated
+  delete) confined to its own sector, new-project defaults with no writes,
+  and catalog persistence across a cold restart.
 
 ## Storage map
 
@@ -117,7 +152,14 @@ make smoke      # 2M instructions, report in build/smoke.json
 | Internal flash 0x00200000 + 64 KiB | This firmware (VSB payload 0x00000) |
 | SPI 0x00000–0x30000 | Installed-image regions; written only by the updater during a host-initiated installation |
 | SPI 0x40000 (one 4 KiB sector) | Committed settings (magic `EUC1`, FNV-1a checked); rewritten only when contents change |
+| SPI 0xc0000–0x1000000 | The board contract's 64 saved-project slots, 0x3d000 apart. A project record (magic `EUPJ`, FNV-1a checked) occupies only the first 4 KiB sector of its slot, written solely by an explicit save or delete in project mode. **This is the same catalog stock firmware keeps its saved projects in**, so saving over a slot overwrites whatever a stock project left there — back up first (see HARDWARE.md) |
 | Everything else | Never written |
+
+A save erases and reprograms one 4 KiB sector; an interruption between the
+erase and the program leaves that slot observably empty or invalid (reported
+on load, never loaded), with every other slot, the workspace and settings
+untouched — save again to recover. Unchanged saves and deletes of
+already-empty slots skip the erase/program cycle entirely.
 
 ## Provenance
 
@@ -129,8 +171,12 @@ content are drawn from scratch. Licensed under the MIT License (see LICENSE).
 
 ## Known limits
 
-- The stock backup/restore SysEx transport is not implemented; settings are
-  this firmware's only persistent data.
+- The stock backup/restore SysEx transport is not implemented; settings and
+  the saved-project slots are this firmware's only persistent data. Project
+  records use this firmware's own compact format (`EUPJ`), stored at the
+  stock catalog's slot addresses — stock firmware cannot read them, nor this
+  firmware stock projects (a stock-written slot shows as INVALID and is never
+  loaded).
 - External clock sync (analog sync jack, incoming MIDI clock) is not
   implemented; incoming start/stop are honored.
 - MIDI input notes are ignored; the device is a sequencer, not a sound module.
