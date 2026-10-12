@@ -21,13 +21,26 @@ from stock firmware.**
 ## Features
 
 - Four tracks, each an independent Euclidean pattern E(pulses, length) with
-  rotation, 1–16 steps (polymetric against each other).
+  rotation, 1–64 steps in four bars of 16 (polymetric against each other),
+  plus a per-track note, gate length, mod CV level and velocity.
 - Tracks A/B/C: gate jack, pitch CV, mod CV and MIDI notes on channels 1–3.
   Track D: trigger jack 1 and MIDI notes on channel 10.
 - Tempo 20–300 BPM with tap tempo, swing 50–75 %, MIDI clock/start/stop out,
   and MIDI start/stop in (external clock *sync* is not implemented).
-- Pad LEDs show each track's pattern with a moving playhead; the display
-  shows all four lanes plus the edited track's parameters.
+- The spec's panel-key requirements (TRACK/MODE/LOOP/BAR/TAP/TEMPO/SWING-001): A–D
+  select the edited track; PITCH, GATE, MOD and CONTROL each toggle an edit
+  mode scoping the pads to that one parameter of the selected track (note,
+  gate %, mod CV level, velocity); keys 1–4 select which 16-step bar the
+  pads, pad LEDs and display lanes address; LOOP loops playback over the
+  selected bar of the selected track's pattern (refused when that bar lies
+  beyond the pattern, clipped or cleared if a later edit moves the pattern
+  end) and clearing it resumes the free-running counter. Selection, mode
+  entry/exit, bar keys and loop toggles alone never change stored data.
+- No boot splash is declared (spec SPLASH-001): the display goes straight to
+  the sequencer UI, and the boot chords are honored regardless.
+- Pad LEDs show the selected bar of each track's pattern with a moving
+  playhead; the display shows all four lanes plus the edited track's
+  parameters in the active edit mode, and the mode/bar/loop status.
 - Settings persist to SPI flash (GLOBAL commits; the power button saves and
   shuts down cleanly through the PB7 power hold).
 - Full project lifecycle over the board contract's 64-slot saved-project
@@ -53,17 +66,25 @@ from stock firmware.**
 
 | Control | Action |
 | --- | --- |
-| PLAY / STOP | Start from step 0 / stop (notes off, gates cleared) |
+| PLAY / STOP | Start from step 0 (or the loop start) / stop (notes off, gates cleared) |
 | TAP | Tap tempo |
 | A B C D | Select the edited track |
-| Pad *n* (any bank) | Set that track's pulses to *n* |
-| SHIFT + pad *n* | Set that track's length to *n* |
+| PITCH / GATE / MOD / CONTROL | Toggle that edit mode (same key again returns to EUCLID) |
+| 1 2 3 4 | Select the bar the pads address (pad *n* = step (bar−1)×16+*n*) |
+| LOOP | Toggle a loop over the selected bar of the selected track's pattern |
+| Pad *n* (any bank) | EUCLID: pulses = selected step. PITCH: note 36+*n*−1. GATE: 5+(*n*−1)×6 %. MOD: level *n*−1. CONTROL: velocity (*n*−1)×8+7 |
+| SHIFT + pad *n* | EUCLID mode only: set that track's length to the selected step |
 | Tempo / swing encoders | BPM / swing |
 | Param 1–4 encoders | Pulses, length, rotation, note |
 | GLOBAL | Commit settings to SPI flash |
 | PROJECT | Enter / leave project mode |
 | SHIFT + PROJECT | New project: workspace back to the declared defaults |
 | Power button | Save and shut down |
+
+Declared SHIFT combinations (spec SHIFT-001): SHIFT+pad in EUCLID mode
+(length), SHIFT+pad in project mode (save) and SHIFT+PROJECT (new project).
+SHIFT alone, and SHIFT with any other control — including pads in the PITCH,
+GATE, MOD and CONTROL modes — has no effect.
 
 In project mode the pads stop editing patterns and address the 64 saved
 project slots instead (slot = bank × 16 + pad − 1):
@@ -93,8 +114,15 @@ make test       # headless + browser-engine behavioral tests (see below)
 The code is compiled as the ARMv6-M subset so it runs on both emulator
 engines (the native engine's stock Unicorn build cannot deliver interrupts
 inside IT blocks); `make ARCH=-mcpu=cortex-m7` builds Thumb-2 instead.
-`tools/make_vsb.py` wraps the 64 KiB binary into a spec-conformant VSB,
-filling unused payload with 0xFF and balancing the four region checksums.
+Every build runs `tools/check_blocks.py`, which fails the link when any
+branch-free instruction run exceeds 80 instructions: the browser engine's
+patched TCI
+interpreter has a fixed translation budget per basic block (about 120 simple
+instructions, fewer for load/store-heavy code) and a longer block traps the
+WASM host before it executes (see the spec's contracts page, "Known
+browser-engine limit"). `tools/make_vsb.py` wraps the 64 KiB binary into a
+spec-conformant VSB, filling unused payload with 0xFF and balancing the four
+region checksums.
 
 ## Run it
 
@@ -126,6 +154,10 @@ make smoke      # 2M instructions, report in build/smoke.json
   start/clock/notes/stop, version and update boot chords, VUP discovery /
   version / begin, ordered packets, and rejection of out-of-order packets,
   wrong blocks, and installs outside update mode — with zero flash writes.
+  The edit-key section covers the panel-key requirements headlessly:
+  track, mode, bar and loop keys are selection-only (zero flash writes), and
+  pad edits land on the selected track through the active mode and bar,
+  verified in the committed settings.
   Project mode runs against this engine's 1 MiB SPI model: the JEDEC
   capacity probe must confine the catalog to slot 0 (the model faults any
   out-of-range address), which is saved, loaded back, deleted and
@@ -138,7 +170,12 @@ make smoke      # 2M instructions, report in build/smoke.json
 - `tools/browser_panel_test.mjs` (browser WASM engine): DMA panel scanning,
   pad/encoder/transport input, pattern LEDs, gate/trigger/CV observers, MIDI
   output, GLOBAL commit, power-button shutdown, and settings persistence
-  across a cold restart. The full project lifecycle runs against the 16 MiB
+  across a cold restart. The panel-key requirements run end to end: each edit
+  mode's LED, scoping and exit, mode edits audible in the MIDI note/velocity
+  and mod CV output with zero storage writes, bar windowing of the pad LEDs
+  over a 20-step pattern, a loop over the selected bar proven in the note
+  stream (and silent again once cleared), and a loop refusal beyond the
+  active pattern's bounds. The full project lifecycle runs against the 16 MiB
   model: saves to the first, middle and last slot with byte-exact
   untouched-slot guards, exact load-back, empty- and corrupted-slot
   rejection with the workspace proven unchanged, delete (and repeated
@@ -151,8 +188,8 @@ make smoke      # 2M instructions, report in build/smoke.json
 | --- | --- |
 | Internal flash 0x00200000 + 64 KiB | This firmware (VSB payload 0x00000) |
 | SPI 0x00000–0x30000 | Installed-image regions; written only by the updater during a host-initiated installation |
-| SPI 0x40000 (one 4 KiB sector) | Committed settings (magic `EUC1`, FNV-1a checked); rewritten only when contents change |
-| SPI 0xc0000–0x1000000 | The board contract's 64 saved-project slots, 0x3d000 apart. A project record (magic `EUPJ`, FNV-1a checked) occupies only the first 4 KiB sector of its slot, written solely by an explicit save or delete in project mode. **This is the same catalog stock firmware keeps its saved projects in**, so saving over a slot overwrites whatever a stock project left there — back up first (see HARDWARE.md) |
+| SPI 0x40000 (one 4 KiB sector) | Committed settings (magic `EUC2`, FNV-1a checked); rewritten only when contents change |
+| SPI 0xc0000–0x1000000 | The board contract's 64 saved-project slots, 0x3d000 apart. A project record (magic `EUP2`, FNV-1a checked) occupies only the first 4 KiB sector of its slot, written solely by an explicit save or delete in project mode. **This is the same catalog stock firmware keeps its saved projects in**, so saving over a slot overwrites whatever a stock project left there — back up first (see HARDWARE.md) |
 | Everything else | Never written |
 
 A save erases and reprograms one 4 KiB sector; an interruption between the
@@ -173,7 +210,7 @@ content are drawn from scratch. Licensed under the MIT License (see LICENSE).
 
 - The stock backup/restore SysEx transport is not implemented; settings and
   the saved-project slots are this firmware's only persistent data. Project
-  records use this firmware's own compact format (`EUPJ`), stored at the
+  records use this firmware's own compact format (`EUP2`), stored at the
   stock catalog's slot addresses — stock firmware cannot read them, nor this
   firmware stock projects (a stock-written slot shows as INVALID and is never
   loaded).

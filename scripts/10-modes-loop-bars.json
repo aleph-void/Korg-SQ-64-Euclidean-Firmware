@@ -1,0 +1,56 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 10: edit modes, bar selection and the loop",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+    { "type": "press", "control": "play", "ms": 150 },
+    { "type": "wait", "ms": 3000 },
+
+    { "type": "press", "control": "trackB", "ms": 150 },
+    { "type": "press", "control": "pitch", "ms": 150 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "press", "control": "B8", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+    { "type": "press", "control": "pitch", "ms": 150 },
+    { "type": "wait", "ms": 800 },
+
+    { "type": "press", "control": "gate", "ms": 150 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "press", "control": "B15", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+    { "type": "press", "control": "gate", "ms": 150 },
+    { "type": "wait", "ms": 800 },
+
+    { "type": "press", "control": "mod", "ms": 150 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "press", "control": "B16", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+    { "type": "press", "control": "mod", "ms": 150 },
+    { "type": "wait", "ms": 800 },
+
+    { "type": "press", "control": "control", "ms": 150 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "press", "control": "B12", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+    { "type": "press", "control": "control", "ms": 150 },
+    { "type": "wait", "ms": 800 },
+
+    { "type": "press", "control": "bar2", "ms": 150 },
+    { "type": "wait", "ms": 1500 },
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "press", "control": "B4", "ms": 150 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 3000 },
+
+    { "type": "press", "control": "loop", "ms": 150 },
+    { "type": "wait", "ms": 6000 },
+    { "type": "press", "control": "loop", "ms": 150 },
+    { "type": "wait", "ms": 4000 },
+
+    { "type": "press", "control": "bar1", "ms": 150 },
+    { "type": "wait", "ms": 2000 },
+    { "type": "press", "control": "stop", "ms": 150 }
+  ]
+}

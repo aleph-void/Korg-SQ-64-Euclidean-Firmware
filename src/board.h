@@ -165,6 +165,22 @@
 #define SW_PATTERN SW(7, 18)
 #define SW_SHIFT   SW(7, 17)
 
+/* Button LED column positions (board model): the pad/track LEDs mirror the
+ * pattern rows (track t LED on column 0 of row 2t, pads on columns 1..16),
+ * while the mode/bar/loop/global/project/pattern/shift key LEDs sit on the
+ * spare columns 17..20 of the even rows, encoded here like switch ids. */
+#define LED_CONTROL SW(0, 17)
+#define LED_GATE    SW(0, 18)
+#define LED_PITCH   SW(0, 19)
+#define LED_MOD     SW(0, 20)
+#define LED_LOOP    SW(2, 17)
+#define LED_BAR1    SW(2, 18)
+#define LED_BAR2    SW(2, 19)
+#define LED_BAR3    SW(4, 17)
+#define LED_BAR4    SW(4, 18)
+#define LED_GLOBAL  SW(4, 19)
+#define LED_PROJECT SW(6, 17)
+
 /* Pad n (1..16) of bank t (0..3 = A..D): row (n-1)&7, bit from the bank
  * column pair; first eight pads use the first column, pads 9..16 the second. */
 static inline uint8_t pad_switch(int track, int pad0 /*0..15*/)

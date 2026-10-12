@@ -9,8 +9,8 @@
 
 int memcmp(const void *a, const void *b, size_t n); /* startup.c */
 
-#define SETTINGS_MAGIC 0x31435545u /* "EUC1" */
-#define PROJECT_MAGIC  0x4a505545u /* "EUPJ" */
+#define SETTINGS_MAGIC 0x32435545u /* "EUC2" */
+#define PROJECT_MAGIC  0x32505545u /* "EUP2" */
 
 static void cs(bool selected)
 {
@@ -91,10 +91,10 @@ static uint32_t settings_hash(const settings_t *s)
 void settings_defaults(settings_t *s)
 {
     static const track_cfg_t defaults[4] = {
-        {16, 4, 0, 60, 50}, /* A: four on the floor, C4  */
-        {16, 3, 2, 48, 50}, /* B */
-        {12, 5, 0, 36, 50}, /* C */
-        {16, 7, 0, 38, 50}, /* D: triggers               */
+        {16, 4, 0, 60, 50, 100, 13}, /* A: four on the floor, C4  */
+        {16, 3, 2, 48, 50, 100, 13}, /* B */
+        {12, 5, 0, 36, 50, 100, 13}, /* C */
+        {16, 7, 0, 38, 50, 100, 13}, /* D: triggers               */
     };
     s->magic = SETTINGS_MAGIC;
     s->bpm = 120;
@@ -111,9 +111,10 @@ static bool record_valid(const settings_t *s, uint32_t magic)
         return false;
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *c = &s->track[t];
-        if (c->length < 1 || c->length > 16 || c->pulses > c->length
+        if (c->length < 1 || c->length > 64 || c->pulses > c->length
             || c->rotate >= c->length || c->note > 127
-            || c->gate_pct < 5 || c->gate_pct > 95)
+            || c->gate_pct < 5 || c->gate_pct > 95
+            || c->velocity < 1 || c->velocity > 127 || c->mod > 15)
             return false;
     }
     return true;

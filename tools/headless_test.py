@@ -9,6 +9,10 @@ programming itself is exercised only in the browser workbench, which models
 the host-granted installation context; the native engine keeps unconditional
 flash protection.
 
+The edit-key section covers the spec panel-key requirements headlessly:
+track/mode/bar/loop keys are selection-only (zero flash writes), and pad
+edits land on the selected track through the active mode and bar.
+
 Project mode is exercised against this engine's 1 MiB SPI model, where only
 saved-project slot 0 fits: the JEDEC capacity probe must keep the firmware
 inside the part (the model faults any out-of-range address), slot 0 must
@@ -164,8 +168,8 @@ def test_project_mode(image):
     set_row(h, 0, 0)
     set_row(h, 7, 0)
     record = bytes(flash.data[PROJECT_SLOT0:PROJECT_SLOT0 + 32])
-    expect(record[:4] == b'EUPJ', 'slot 0 holds a project record')
-    expect(record[8 + 5] == 16 and record[8 + 5 + 1] == 7,
+    expect(record[:4] == b'EUP2', 'slot 0 holds a project record')
+    expect(record[8 + 7] == 16 and record[8 + 7 + 1] == 7,
            'saved record carries the edited workspace (track B E(7,16))')
     changed = {i for i, (a, b) in enumerate(zip(before, bytes(flash.data))) if a != b}
     expect(changed and all(PROJECT_SLOT0 <= i < PROJECT_SLOT0 + 0x1000 for i in changed),
@@ -195,7 +199,7 @@ def test_project_mode(image):
     set_row(h, 6, 1 << 18)  # GLOBAL commit
     set_row(h, 6, 0, 1200000)
     settings = bytes(flash.data[SETTINGS_ADDR:SETTINGS_ADDR + 32])
-    expect(settings[:4] == b'EUC1' and settings[8 + 5] == 16 and settings[8 + 5 + 1] == 7,
+    expect(settings[:4] == b'EUC2' and settings[8 + 7] == 16 and settings[8 + 7 + 1] == 7,
            'loaded project restored the workspace (committed settings match)')
 
     # RECORD (row 1, bit 0) + pad A1 deletes slot 0.
@@ -215,6 +219,61 @@ def test_project_mode(image):
     expect(flash.writes == writes, 'repeated delete of an empty slot writes nothing')
     report = h.run(200000)
     expect(not report['critical']['terminated'], 'no critical hazard in project mode')
+
+
+def test_edit_keys(image):
+    """Spec panel keys (TRACK/MODE/BAR/LOOP-001): track select, edit modes,
+    bars and loop are selection-only (no stored-data writes), and pad edits
+    follow the selected track, mode and bar into the committed settings."""
+    print('-- edit modes, bars and loop keys')
+    h = boot(image)
+    h.run(1500000)
+    flash = h.machine.board.flash
+    before = bytes(flash.data)
+
+    # Selection-only sequences: track keys, every mode key in and out, each
+    # bar key, and a loop toggled on and off change no stored data.
+    set_row(h, 1, 1 << 18)   # track C
+    set_row(h, 1, 0)
+    set_row(h, 0, 1 << 17)   # track A
+    set_row(h, 0, 0)
+    for row, bit in ((2, 17), (2, 18), (3, 18), (0, 18)):  # PITCH GATE MOD CONTROL
+        set_row(h, row, 1 << bit)
+        set_row(h, row, 0)
+        set_row(h, row, 1 << bit)  # second press leaves the mode again
+        set_row(h, row, 0)
+    for row, bit in ((4, 17), (5, 18), (5, 17), (4, 18)):  # bars 2 3 4 1
+        set_row(h, row, 1 << bit)
+        set_row(h, row, 0)
+    set_row(h, 3, 1 << 17)   # LOOP on (bar 1 of track A)
+    set_row(h, 3, 0)
+    set_row(h, 3, 1 << 17)   # LOOP off
+    set_row(h, 3, 0)
+    expect(flash.writes == 0 and bytes(flash.data) == before,
+           'selection, mode, bar and loop keys alone write nothing')
+
+    # PITCH mode scopes pads to the note: pad A5 -> note 40 (E3).
+    set_row(h, 2, 1 << 17)   # PITCH mode
+    set_row(h, 2, 0)
+    set_row(h, 4, 1 << 26)   # pad A5
+    set_row(h, 4, 0)
+    set_row(h, 2, 1 << 17)   # leave PITCH mode
+    set_row(h, 2, 0)
+    # Bar 2 scopes pad steps 17..32: SHIFT + pad A4 -> length 20.
+    set_row(h, 4, 1 << 17)   # bar 2
+    set_row(h, 4, 0)
+    set_row(h, 7, 1 << 17)   # SHIFT down
+    set_row(h, 3, 1 << 26)   # pad A4
+    set_row(h, 3, 0)
+    set_row(h, 7, 0)
+    set_row(h, 6, 1 << 18)   # GLOBAL commit
+    set_row(h, 6, 0, 1200000)
+    s = bytes(flash.data[SETTINGS_ADDR:SETTINGS_ADDR + 40])
+    expect(s[:4] == b'EUC2', 'settings committed')
+    expect(s[8] == 20 and s[8 + 3] == 40,
+           'pitch-mode and bar-2 pad edits landed on track A (len 20, note 40)')
+    expect(s[15] == 16 and s[16] == 3,
+           'track B kept its defaults: edits followed the selection only')
 
 
 def test_version_mode(image):
@@ -266,6 +325,7 @@ def main():
     sys.path.insert(0, str(args.emulator.resolve()))
     image = args.image.read_bytes()
     test_normal_mode(image)
+    test_edit_keys(image)
     test_project_mode(image)
     test_version_mode(image)
     test_update_mode(image)

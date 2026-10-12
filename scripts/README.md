@@ -34,6 +34,7 @@ off.
 | `07-version-mode.json` | GLOBAL boot chord | `EUCLID SQ-64 / VERSION 1.0 / ORIGINAL EUCLIDEAN FIRMWARE`, then a clean power-off |
 | `08-update-mode-install.json` | GLOBAL+PATTERN boot chord and the full VUP self-updater | See below |
 | `09-project-management.json` | Project mode: save, load, empty-slot report, delete, new project | Pads become the 64 slot selectors (lit = saved): B7 is saved to slot A1 and D16, loading empty B3 reports `B3 EMPTY`, the pattern is edited away and loading A1 brings it back, RECORD+D16 deletes, SHIFT+PROJECT resets the workspace to defaults |
+| `10-modes-loop-bars.json` | The panel-key requirements: PITCH/GATE/MOD/CONTROL edit modes, bar selection, the loop | Each mode key lights its LED and the pads retarget one parameter of track B (note, gate %, mod level — watch the B MOD indicator jump to full — velocity); key 2 selects bar 2 and SHIFT+B4 stretches the pattern to 20 steps; LOOP pins playback inside that bar until cleared; key 1 returns to bar 1 |
 
 ## Notes on script 08 (updater)
 

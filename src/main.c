@@ -1,11 +1,19 @@
 /* Euclidean sequencer for the SQ-64: boot mode selection and normal mode.
  *
- * Four tracks each play a Euclidean rhythm E(pulses, length) with rotation.
- * Tracks A/B/C drive their gate jack, pitch CV and MIDI channels 1..3;
- * track D drives trigger jack 1 and MIDI channel 10. Pads set pulses
- * (SHIFT+pad sets length), encoders edit tempo/swing/pulses/length/rotation/
- * note, GLOBAL commits settings to SPI flash, and the power button saves and
- * shuts down cleanly.
+ * Four tracks each play a Euclidean rhythm E(pulses, length) with rotation,
+ * up to 64 steps (four bars of 16). Tracks A/B/C drive their gate jack,
+ * pitch CV, mod CV and MIDI channels 1..3; track D drives trigger jack 1 and
+ * MIDI channel 10. Encoders edit tempo/swing/pulses/length/rotation/note,
+ * GLOBAL commits settings to SPI flash, and the power button saves and shuts
+ * down cleanly.
+ *
+ * The pads edit the selected track through the active edit mode. In the
+ * default EUCLID mode pad n addresses step (bar-1)*16+n of the selected bar
+ * (keys 1..4): pad = pulses, SHIFT+pad = length. The PITCH, GATE, MOD and
+ * CONTROL keys each toggle an edit mode scoping the pads to that one
+ * parameter of the selected track: note, gate length, mod CV level and
+ * velocity. LOOP toggles a loop over the selected bar of the selected
+ * track's pattern; clearing it resumes the free-running step counter.
  *
  * PROJECT toggles project mode, where the 64 pads manage the 64 saved
  * project slots of the board contract's catalog: pad = load, SHIFT+pad =
@@ -21,6 +29,14 @@
 #include "panel.h"
 #include "storage.h"
 #include "updater.h"
+
+/* The browser engine's patched TCI interpreter has a fixed translation
+ * budget per basic block (about 120 simple instructions, fewer for
+ * load/store-heavy code); a longer straight-line block overflows it and
+ * traps the WASM host. Keeping the main-loop phases out of line stops the
+ * optimizer from fusing them into one giant block; `make` verifies the
+ * final image against the budget (tools/check_blocks.py). */
+#define NOINLINE __attribute__((noinline))
 
 volatile uint32_t g_ms;
 
@@ -43,6 +59,23 @@ static uint32_t tap_last_ms;
 static bool ui_dirty = true;
 static volatile bool rt_start, rt_stop;
 
+/* Edit modes (MODE-001): the PITCH/GATE/MOD/CONTROL keys scope what the
+ * pads edit on the selected track; pressing the active mode's key again
+ * returns to the default EUCLID mode. Entry and exit change no data. */
+enum { MODE_EUCLID, MODE_PITCH, MODE_GATE, MODE_MOD, MODE_CONTROL };
+static uint8_t edit_mode;
+
+/* Bar selection (BAR-001): keys 1..4 pick which 16-step bar of the 64-step
+ * pattern space the pads, pad LEDs and display lanes address. */
+static uint8_t edit_bar; /* 0..3 */
+
+/* Loop (LOOP-001): a loop captures the selected bar of the selected track's
+ * pattern when switched on and wraps the step counter inside it. It is
+ * refused when that bar lies beyond the pattern, clipped to the pattern end,
+ * and cleared if a later edit moves the pattern end before the region. */
+static bool loop_on;
+static uint8_t loop_track, loop_start, loop_len;
+
 /* Project mode (PROJECT button): the 64 pads select the 64 saved project
  * slots, bank A pad 1 = slot 0 .. bank D pad 16 = slot 63. */
 static bool project_mode;
@@ -54,13 +87,13 @@ static uint32_t now256(void) { return g_ms << 8; }
 
 static uint32_t step_period256(void) { return (15000u << 8) / cfg.bpm; }
 
-static uint16_t euclid_pattern(const track_cfg_t *t)
+static uint64_t euclid_pattern(const track_cfg_t *t)
 {
-    uint16_t bits = 0;
+    uint64_t bits = 0;
     for (int i = 0; i < t->length; i++) {
         int j = (i + t->length - t->rotate) % t->length;
         if ((j * t->pulses) % t->length < t->pulses)
-            bits |= (uint16_t)(1u << i);
+            bits |= 1ull << i;
     }
     return bits;
 }
@@ -68,7 +101,8 @@ static uint16_t euclid_pattern(const track_cfg_t *t)
 static void send_note(int track, uint8_t status, uint8_t note)
 {
     uint8_t channel = track < 3 ? (uint8_t)track : 9;
-    uint8_t msg[3] = {(uint8_t)(status | channel), note, status == 0x90 ? 100 : 0};
+    uint8_t velocity = status == 0x90 ? cfg.track[track].velocity : 0;
+    uint8_t msg[3] = {(uint8_t)(status | channel), note, velocity};
     midi_send(msg, 3);
 }
 
@@ -98,7 +132,7 @@ static void fire_step(uint32_t now)
         if (t < 3) {
             gate_set(t, true);
             cv_pitch(t, c->note);
-            cv_mod(t, 220);
+            cv_mod(t, (uint8_t)(c->mod * 17));
         } else {
             panel_triggers(1);
             trigger_off_ms = now + 20;
@@ -106,13 +140,16 @@ static void fire_step(uint32_t now)
     }
     if (global_step % 4 == 0) beat_flash_ms = now + 60;
     global_step++;
+    if (loop_on && (global_step < loop_start
+                    || global_step >= (uint32_t)loop_start + loop_len))
+        global_step = loop_start;
     ui_dirty = true;
 }
 
 static void transport_start(void)
 {
     playing = true;
-    global_step = 0;
+    global_step = loop_on ? loop_start : 0;
     next_step256 = now256();
     next_clock256 = now256();
     midi_send((const uint8_t[]){0xfa}, 1);
@@ -128,7 +165,7 @@ static void transport_stop(void)
     ui_dirty = true;
 }
 
-static void sequencer_tick(void)
+static NOINLINE void sequencer_tick(void)
 {
     uint32_t now = g_ms;
     for (int t = 0; t < 4; t++)
@@ -159,14 +196,70 @@ static void clamp_track(track_cfg_t *c)
     if (c->rotate >= c->length) c->rotate = (uint8_t)(c->length - 1);
 }
 
+static void loop_toggle(void)
+{
+    ui_dirty = true;
+    if (loop_on) {
+        loop_on = false; /* clear: the step counter runs free again */
+        return;
+    }
+    const track_cfg_t *c = &cfg.track[cfg.selected];
+    uint8_t start = (uint8_t)(edit_bar * 16);
+    if (start >= c->length) return; /* bar beyond the pattern: refused */
+    loop_track = cfg.selected;
+    loop_start = start;
+    loop_len = (uint8_t)(c->length - start > 16 ? 16 : c->length - start);
+    loop_on = true;
+}
+
+/* An edit (pad, encoder, project load, new project) may move the looped
+ * pattern's end: clip the loop to it, or clear a loop left stranded. */
+static void loop_revalidate(void)
+{
+    if (!loop_on) return;
+    const track_cfg_t *c = &cfg.track[loop_track];
+    if (loop_start >= c->length) {
+        loop_on = false;
+        ui_dirty = true;
+        return;
+    }
+    uint8_t span = (uint8_t)(c->length - loop_start);
+    if (span > 16) span = 16;
+    if (span != loop_len) {
+        loop_len = span;
+        ui_dirty = true;
+    }
+}
+
 static void handle_pad(int track, int pad0, bool shift)
 {
     track_cfg_t *c = &cfg.track[track];
-    if (shift) {
-        c->length = (uint8_t)(pad0 + 1);
-        clamp_track(c);
-    } else if (pad0 + 1 <= c->length) {
-        c->pulses = (uint8_t)(pad0 + 1);
+    int step = edit_bar * 16 + pad0 + 1; /* step index in the selected bar */
+    switch (edit_mode) {
+    case MODE_EUCLID:
+        if (shift) {
+            c->length = (uint8_t)step;
+            clamp_track(c);
+        } else if (step <= c->length) {
+            c->pulses = (uint8_t)step;
+        }
+        break;
+    case MODE_PITCH:
+        if (shift) return; /* undeclared SHIFT combination: no effect */
+        c->note = (uint8_t)(36 + pad0);
+        break;
+    case MODE_GATE:
+        if (shift) return;
+        c->gate_pct = (uint8_t)(5 + pad0 * 6);
+        break;
+    case MODE_MOD:
+        if (shift) return;
+        c->mod = (uint8_t)pad0;
+        break;
+    case MODE_CONTROL:
+        if (shift) return;
+        c->velocity = (uint8_t)(pad0 * 8 + 7);
+        break;
     }
     cfg.selected = (uint8_t)track;
     ui_dirty = true;
@@ -221,7 +314,7 @@ static void project_pad(int slot)
     }
 }
 
-static void handle_events(void)
+static NOINLINE void handle_events(void)
 {
     panel_event_t ev;
     while (panel_event_next(&ev)) {
@@ -256,6 +349,15 @@ static void handle_events(void)
         case SW_TRACK_B: if (!project_mode) { cfg.selected = 1; ui_dirty = true; } continue;
         case SW_TRACK_C: if (!project_mode) { cfg.selected = 2; ui_dirty = true; } continue;
         case SW_TRACK_D: if (!project_mode) { cfg.selected = 3; ui_dirty = true; } continue;
+        case SW_PITCH:   if (!project_mode) { edit_mode = edit_mode == MODE_PITCH   ? MODE_EUCLID : MODE_PITCH;   ui_dirty = true; } continue;
+        case SW_GATE:    if (!project_mode) { edit_mode = edit_mode == MODE_GATE    ? MODE_EUCLID : MODE_GATE;    ui_dirty = true; } continue;
+        case SW_MOD:     if (!project_mode) { edit_mode = edit_mode == MODE_MOD     ? MODE_EUCLID : MODE_MOD;     ui_dirty = true; } continue;
+        case SW_CONTROL: if (!project_mode) { edit_mode = edit_mode == MODE_CONTROL ? MODE_EUCLID : MODE_CONTROL; ui_dirty = true; } continue;
+        case SW_BAR1: if (!project_mode) { edit_bar = 0; ui_dirty = true; } continue;
+        case SW_BAR2: if (!project_mode) { edit_bar = 1; ui_dirty = true; } continue;
+        case SW_BAR3: if (!project_mode) { edit_bar = 2; ui_dirty = true; } continue;
+        case SW_BAR4: if (!project_mode) { edit_bar = 3; ui_dirty = true; } continue;
+        case SW_LOOP: if (!project_mode) loop_toggle(); continue;
         case SW_GLOBAL: if (!project_mode) { settings_save(&cfg); ui_dirty = true; } continue;
         default: break;
         }
@@ -270,6 +372,7 @@ static void handle_events(void)
         /* Pads are slot selectors here; drop encoder motion so it does not
          * accumulate and edit the workspace invisibly. */
         for (int e = 0; e < ENC_COUNT; e++) panel_encoder_take(e);
+        loop_revalidate(); /* a loaded or new project may move pattern ends */
         return;
     }
     track_cfg_t *c = &cfg.track[cfg.selected];
@@ -291,7 +394,7 @@ static void handle_events(void)
     }
     if ((d = panel_encoder_take(ENC_PARAM2))) {
         int length = c->length + d;
-        c->length = (uint8_t)(length < 1 ? 1 : length > 16 ? 16 : length);
+        c->length = (uint8_t)(length < 1 ? 1 : length > 64 ? 64 : length);
         clamp_track(c);
         ui_dirty = true;
     }
@@ -306,9 +409,10 @@ static void handle_events(void)
         c->note = (uint8_t)(note < 0 ? 0 : note > 127 ? 127 : note);
         ui_dirty = true;
     }
+    loop_revalidate();
 }
 
-static void update_leds(void)
+static NOINLINE void update_leds(void)
 {
     uint32_t rows[8];
     if (project_mode) {
@@ -321,22 +425,30 @@ static void update_leds(void)
             rows[t * 2] = cols;
             rows[t * 2 + 1] = 0;
         }
-        rows[6] |= 1u << 17; /* PROJECT mode LED */
+        rows[SW_ROW(LED_PROJECT)] |= 1u << SW_BIT(LED_PROJECT);
         panel_led_columns(rows);
         panel_transport_leds(false, !playing, panel_down(SW_RECORD), playing);
         return;
     }
+    uint32_t base = (uint32_t)edit_bar * 16; /* pads window the selected bar */
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *c = &cfg.track[t];
-        uint32_t cols = euclid_pattern(c) << 1; /* pads on columns 1..16 */
+        uint32_t cols = (uint32_t)((euclid_pattern(c) >> base) & 0xffffu) << 1;
         if (playing) {
             uint32_t pos = (global_step ? global_step - 1 : 0) % c->length;
-            cols ^= 2u << pos; /* playhead inverts its column */
+            if (pos >= base && pos < base + 16)
+                cols ^= 2u << (pos - base); /* playhead inverts its column */
         }
         if (t == cfg.selected) cols |= 1; /* track select LED, column 0 */
         rows[t * 2] = cols;
         rows[t * 2 + 1] = 0;
     }
+    static const uint8_t MODE_LEDS[5] = {0xff, LED_PITCH, LED_GATE, LED_MOD, LED_CONTROL};
+    static const uint8_t BAR_LEDS[4] = {LED_BAR1, LED_BAR2, LED_BAR3, LED_BAR4};
+    if (MODE_LEDS[edit_mode] != 0xff)
+        rows[SW_ROW(MODE_LEDS[edit_mode])] |= 1u << SW_BIT(MODE_LEDS[edit_mode]);
+    rows[SW_ROW(BAR_LEDS[edit_bar])] |= 1u << SW_BIT(BAR_LEDS[edit_bar]);
+    if (loop_on) rows[SW_ROW(LED_LOOP)] |= 1u << SW_BIT(LED_LOOP);
     panel_led_columns(rows);
     panel_transport_leds((int32_t)(g_ms - beat_flash_ms) < 0, !playing, false, playing);
 }
@@ -345,7 +457,7 @@ static const char *const NOTE_NAMES[12] = {
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 };
 
-static void draw_project_ui(void)
+static NOINLINE void draw_project_ui(void)
 {
     fb_clear();
     fb_text(2, 1, "PROJECT", 15);
@@ -379,7 +491,7 @@ static void draw_project_ui(void)
     display_flush();
 }
 
-static void draw_ui(void)
+static NOINLINE void draw_ui(void)
 {
     if (project_mode) {
         draw_project_ui();
@@ -397,36 +509,66 @@ static void draw_ui(void)
 
     fb_text(2, 12, "TRACK", 8);
     fb_text(40, 12, (const char[]){(char)('A' + cfg.selected), 0}, 15);
-    fb_text(60, 12, "PULSE", 8);
-    fb_number(96, 12, c->pulses, 15);
-    fb_text(118, 12, "LEN", 8);
-    fb_number(142, 12, c->length, 15);
-    fb_text(162, 12, "ROT", 8);
-    fb_number(186, 12, c->rotate, 15);
-    fb_text(206, 12, "NOTE", 8);
-    fb_text(236, 12, NOTE_NAMES[c->note % 12], 15);
-    fb_number(248, 12, c->note / 12 - 1, 15);
+    switch (edit_mode) {
+    case MODE_PITCH:
+        fb_text(60, 12, "PITCH", 8);
+        fb_text(98, 12, NOTE_NAMES[c->note % 12], 15);
+        fb_number(112, 12, c->note / 12 - 1, 15);
+        fb_number(132, 12, c->note, 12);
+        break;
+    case MODE_GATE:
+        fb_text(60, 12, "GATE", 8);
+        fb_number(92, 12, c->gate_pct, 15);
+        fb_text(110, 12, "%", 8);
+        break;
+    case MODE_MOD:
+        fb_text(60, 12, "MOD", 8);
+        fb_number(86, 12, c->mod, 15);
+        break;
+    case MODE_CONTROL:
+        fb_text(60, 12, "VEL", 8);
+        fb_number(86, 12, c->velocity, 15);
+        break;
+    default:
+        fb_text(60, 12, "PULSE", 8);
+        fb_number(96, 12, c->pulses, 15);
+        fb_text(118, 12, "LEN", 8);
+        fb_number(142, 12, c->length, 15);
+        fb_text(162, 12, "ROT", 8);
+        fb_number(186, 12, c->rotate, 15);
+        fb_text(206, 12, "NOTE", 8);
+        fb_text(236, 12, NOTE_NAMES[c->note % 12], 15);
+        fb_number(248, 12, c->note / 12 - 1, 15);
+        break;
+    }
 
-    /* Pattern lane for every track. */
+    /* Pattern lane for every track, windowed on the selected bar. */
+    int base = edit_bar * 16;
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *tc = &cfg.track[t];
-        uint16_t bits = euclid_pattern(tc);
+        uint64_t bits = euclid_pattern(tc);
         int y = 24 + t * 8;
         fb_text(2, y, (const char[]){(char)('A' + t), 0}, t == cfg.selected ? 15 : 6);
         for (int k = 0; k < 16; k++) {
+            int step = base + k;
             int x = 14 + k * 9;
-            if (k >= tc->length) continue;
-            if ((bits >> k) & 1) fb_fill(x, y, 7, 6, t == cfg.selected ? 13 : 7);
+            if (step >= tc->length) continue;
+            if ((bits >> step) & 1) fb_fill(x, y, 7, 6, t == cfg.selected ? 13 : 7);
             else fb_fill(x, y + 2, 7, 2, 3);
-            if (playing && (int)((global_step ? global_step - 1 : 0) % tc->length) == k)
+            if (playing && (int)((global_step ? global_step - 1 : 0) % tc->length) == step)
                 fb_fill(x + 2, y + 6, 3, 1, 15);
         }
     }
+    static const char *const MODE_NAMES[5] = {"EUCLID", "PITCH", "GATE", "MOD", "CTRL"};
+    fb_text(2, 57, MODE_NAMES[edit_mode], 5);
+    fb_text(46, 57, "BAR", 5);
+    fb_number(70, 57, edit_bar + 1, 5);
+    if (loop_on) fb_text(84, 57, "LOOP", 12);
     fb_text(168, 57, "GLOBAL SAVES", 5);
     display_flush();
 }
 
-static void power_off(void)
+static NOINLINE void power_off(void)
 {
     transport_stop();
     outputs_all_off();
@@ -447,7 +589,7 @@ static void realtime_in(uint8_t byte)
     else if (byte == 0xfc) rt_stop = true;
 }
 
-static void normal_main(void)
+static NOINLINE void normal_main(void)
 {
     settings_load(&cfg);
     display_init();

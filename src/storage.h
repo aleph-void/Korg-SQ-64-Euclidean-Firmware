@@ -15,11 +15,13 @@ void spi_flash_program(uint32_t address, const uint8_t *data, uint32_t length);
 #define SETTINGS_ADDR 0x40000u
 
 typedef struct {
-    uint8_t length;   /* 1..16 steps */
+    uint8_t length;   /* 1..64 steps (four bars of 16) */
     uint8_t pulses;   /* 0..length  */
     uint8_t rotate;   /* 0..length-1 */
     uint8_t note;     /* MIDI note  */
     uint8_t gate_pct; /* 5..95 % of a step */
+    uint8_t velocity; /* 1..127 note-on velocity */
+    uint8_t mod;      /* 0..15 mod CV level while the gate is open */
 } track_cfg_t;
 
 typedef struct {

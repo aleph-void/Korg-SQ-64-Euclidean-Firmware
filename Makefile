@@ -23,9 +23,10 @@ HDRS = $(wildcard src/*.h)
 
 all: build/euclidean.vsb
 
-build/euclidean.elf: $(SRCS) $(HDRS) linker.ld
+build/euclidean.elf: $(SRCS) $(HDRS) linker.ld tools/check_blocks.py
 	@mkdir -p build
 	$(CC) $(CFLAGS) -T linker.ld $(SRCS) -lgcc -o $@
+	$(PYTHON) tools/check_blocks.py $@ --objdump $(CROSS)objdump
 
 build/euclidean.bin: build/euclidean.elf
 	$(OBJCOPY) -O binary $< $@
