@@ -27,7 +27,7 @@ wrong. Read all of it — especially [Risks](#risks-read-first) and
 
 If any of that is unacceptable, stay in the browser emulator — everything in
 this firmware can be exercised there (see `README.md` and
-`tools/ui-scripts/`).
+`scripts/`).
 
 ## What you need
 

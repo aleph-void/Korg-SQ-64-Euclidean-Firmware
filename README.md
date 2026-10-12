@@ -79,7 +79,7 @@ Power on. Use **Send a second firmware image** after booting update mode to
 exercise the updater; the usual critical flash guards stay active.
 
 Importable demo scripts for the workbench's **UI scripts** panel live in
-[`tools/ui-scripts/`](tools/ui-scripts/README.md); they walk through every
+[`scripts/`](scripts/README.md); they walk through every
 major function (transport, tap tempo, pattern editing, polymeter, swing,
 MIDI remote start/stop, settings persistence, version mode and a full
 self-update).
