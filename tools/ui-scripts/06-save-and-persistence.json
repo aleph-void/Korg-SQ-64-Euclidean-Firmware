@@ -1,0 +1,17 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 06: GLOBAL commit, shutdown, persistence",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+    { "type": "press", "control": "B9", "ms": 150 },
+    { "type": "wait", "ms": 1000 },
+    { "type": "press", "control": "global", "ms": 150 },
+    { "type": "wait", "ms": 1500 },
+    { "type": "power-off" },
+    { "type": "wait", "ms": 1000 },
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 }
+  ]
+}

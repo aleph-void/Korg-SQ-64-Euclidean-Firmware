@@ -1,0 +1,13 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 08: update mode and firmware installation",
+  "actions": [
+    { "type": "power-on", "mode": "update" },
+    { "type": "wait", "ms": 4000 },
+    { "type": "button", "control": "global", "down": false },
+    { "type": "button", "control": "pattern", "down": false },
+    { "type": "firmware-update", "allowOlder": true },
+    { "type": "wait", "ms": 3000 }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 07: version-mode boot chord",
+  "actions": [
+    { "type": "power-on", "mode": "version" },
+    { "type": "wait", "ms": 8000 },
+    { "type": "button", "control": "global", "down": false },
+    { "type": "wait", "ms": 4000 },
+    { "type": "power-off" }
+  ]
+}

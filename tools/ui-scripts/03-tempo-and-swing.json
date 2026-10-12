@@ -1,0 +1,20 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 03: tempo and swing encoders",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+    { "type": "press", "control": "play", "ms": 150 },
+    { "type": "wait", "ms": 3000 },
+    { "type": "encoder", "control": "tempo", "delta": 20 },
+    { "type": "wait", "ms": 3000 },
+    { "type": "encoder", "control": "swing", "delta": 15 },
+    { "type": "wait", "ms": 5000 },
+    { "type": "encoder", "control": "swing", "delta": -15 },
+    { "type": "wait", "ms": 1000 },
+    { "type": "encoder", "control": "tempo", "delta": -20 },
+    { "type": "wait", "ms": 3000 },
+    { "type": "press", "control": "stop", "ms": 150 }
+  ]
+}

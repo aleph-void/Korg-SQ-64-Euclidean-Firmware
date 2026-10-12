@@ -14,7 +14,9 @@ from stock firmware.**
 > `image` profile and runs in the emulator; that is **not** a certification
 > that it is safe on a physical SQ-64. Flashing real hardware is at your own
 > risk, and power loss while internal flash is being programmed is not
-> guaranteed to be recoverable (spec VUP-008).
+> guaranteed to be recoverable (spec VUP-008). If you accept that,
+> [HARDWARE.md](HARDWARE.md) documents the full install / operate / restore
+> procedure.
 
 ## Features
 
@@ -75,6 +77,15 @@ dev`, open the printed URL, load `build/euclidean.vsb` in **Browser
 emulator**, and run. Boot chords: double-click latches a button, then press
 Power on. Use **Send a second firmware image** after booting update mode to
 exercise the updater; the usual critical flash guards stay active.
+
+Importable demo scripts for the workbench's **UI scripts** panel live in
+[`tools/ui-scripts/`](tools/ui-scripts/README.md); they walk through every
+major function (transport, tap tempo, pattern editing, polymeter, swing,
+MIDI remote start/stop, settings persistence, version mode and a full
+self-update).
+
+To put it on a physical SQ-64 — including backing up first and getting back
+to stock firmware — see [HARDWARE.md](HARDWARE.md) and its warnings.
 
 Native headless:
 

@@ -1,0 +1,28 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 02: pattern editing (pads, SHIFT, param encoders)",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+    { "type": "press", "control": "trackB", "ms": 150 },
+    { "type": "wait", "ms": 800 },
+    { "type": "press", "control": "B7", "ms": 150 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "press", "control": "B12", "ms": 150 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 1200 },
+    { "type": "encoder", "control": "param3", "delta": 3 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "encoder", "control": "param4", "delta": 12 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "encoder", "control": "param1", "delta": -2 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "encoder", "control": "param2", "delta": 4 },
+    { "type": "wait", "ms": 1200 },
+    { "type": "press", "control": "play", "ms": 150 },
+    { "type": "wait", "ms": 6000 },
+    { "type": "press", "control": "stop", "ms": 150 }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 05: MIDI remote start/stop",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+    { "type": "midi", "data": [250] },
+    { "type": "wait", "ms": 6000 },
+    { "type": "midi", "data": [252] },
+    { "type": "wait", "ms": 1000 }
+  ]
+}

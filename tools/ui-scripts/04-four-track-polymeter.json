@@ -1,0 +1,32 @@
+{
+  "format": "sq64-ui-script",
+  "version": 1,
+  "name": "Euclidean 04: four-track polymeter",
+  "actions": [
+    { "type": "power-on", "mode": "normal" },
+    { "type": "wait", "ms": 20000 },
+    { "type": "press", "control": "A5", "ms": 150 },
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "press", "control": "A8", "ms": 150 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 800 },
+    { "type": "press", "control": "B3", "ms": 150 },
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "press", "control": "B13", "ms": 150 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 800 },
+    { "type": "press", "control": "C7", "ms": 150 },
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "press", "control": "C16", "ms": 150 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 800 },
+    { "type": "press", "control": "D2", "ms": 150 },
+    { "type": "button", "control": "shift", "down": true },
+    { "type": "press", "control": "D4", "ms": 150 },
+    { "type": "button", "control": "shift", "down": false },
+    { "type": "wait", "ms": 800 },
+    { "type": "press", "control": "play", "ms": 150 },
+    { "type": "wait", "ms": 12000 },
+    { "type": "press", "control": "stop", "ms": 150 }
+  ]
+}
