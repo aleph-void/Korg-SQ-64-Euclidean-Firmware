@@ -114,7 +114,7 @@ Original work. Interface facts (container format, update protocol, panel
 wiring, peripheral behavior) come from the sibling spec's `board.json`,
 `contracts.md` and the emulator's independently authored board model — see
 `src/board.h` for the consolidated register map. The 5×7 font and all other
-content are drawn from scratch. No license has been chosen yet.
+content are drawn from scratch. Licensed under the MIT License (see LICENSE).
 
 ## Known limits
 
