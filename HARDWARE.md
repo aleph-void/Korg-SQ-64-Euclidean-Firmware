@@ -80,7 +80,7 @@ a full backup while stock firmware is still installed:
 3. Connect USB, open the updater web app, enable MIDI access with SysEx, and
    select the SQ-64 ports.
 4. Select `build/euclidean.vsb` as the file to send. The default build is
-   version **1.0**, which is *older* than stock (2.0x), so you must enable
+   version **1.1**, which is *older* than stock (2.0x), so you must enable
    the host tool's explicit reinstall/downgrade option. Whether the stock
    device-side updater itself refuses older version numbers on real hardware
    is unverified; if the transfer is rejected at the begin step, rebuild with
@@ -104,7 +104,7 @@ Hold **GLOBAL** (alone) and power on. The display should read:
 
 ```
 EUCLID SQ-64
-VERSION 1.0
+VERSION 1.1
 ORIGINAL EUCLIDEAN FIRMWARE
 ```
 

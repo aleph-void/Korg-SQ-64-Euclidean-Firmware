@@ -1,11 +1,14 @@
 /* Euclidean sequencer for the SQ-64: boot mode selection and normal mode.
  *
- * Four tracks each play a Euclidean rhythm E(pulses, length) with rotation,
- * up to 64 steps (four bars of 16). Tracks A/B/C drive their gate jack,
- * pitch CV, mod CV and MIDI channels 1..3; track D drives trigger jack 1 and
- * MIDI channel 10. Encoders edit tempo/swing/pulses/length/rotation/note,
- * GLOBAL commits settings to SPI flash, and the power button saves and shuts
- * down cleanly.
+ * Four tracks each play a rhythm of up to 64 steps (four bars of 16) in one
+ * of two algorithms (PATTERN cycles the selected track between them): the
+ * Euclidean rhythm E(pulses, length) with rotation, or a shift register
+ * seeded from that pattern which rotates one step every cycle and flips a
+ * random bit with chance rotate/length per cycle (see storage.h). Tracks
+ * A/B/C drive their gate jack, pitch CV, mod CV and MIDI channels 1..3;
+ * track D drives trigger jack 1 and MIDI channel 10. Encoders edit
+ * tempo/swing/pulses/length/rotation/note, GLOBAL commits settings to SPI
+ * flash, and the power button saves and shuts down cleanly.
  *
  * The pads edit the selected track through the active edit mode. In the
  * default EUCLID mode pad n addresses step (bar-1)*16+n of the selected bar
@@ -98,6 +101,56 @@ static uint64_t euclid_pattern(const track_cfg_t *t)
     return bits;
 }
 
+/* Live state of an ALGO_SHIFT track: a shift register seeded from the
+ * track's unrotated Euclidean pattern, evolving in RAM only. Reseeded on
+ * every load/new-project and on seed edits; the deterministic xorshift makes
+ * the evolution reproducible from the same seed.
+ * ponytail: RAM state — persist shreg in the settings record if continuity
+ * across a power cycle matters. */
+static uint64_t shreg[4];
+static uint32_t rng_state = 0x9e3779b9u;
+
+static uint32_t rng(void)
+{
+    rng_state ^= rng_state << 13;
+    rng_state ^= rng_state >> 17;
+    rng_state ^= rng_state << 5;
+    return rng_state;
+}
+
+static uint64_t euclid_seed(const track_cfg_t *c)
+{
+    uint64_t bits = 0;
+    for (int i = 0; i < c->length; i++)
+        if ((i * c->pulses) % c->length < c->pulses)
+            bits |= 1ull << i;
+    return bits;
+}
+
+static void shift_reseed(void)
+{
+    for (int t = 0; t < 4; t++) shreg[t] = euclid_seed(&cfg.track[t]);
+}
+
+/* One register cycle: rotate left a step within the pattern length, then
+ * maybe flip one random bit (chance = rotate/length; rotate 0 = pure loop). */
+static void shift_evolve(int t)
+{
+    const track_cfg_t *c = &cfg.track[t];
+    uint64_t r = (shreg[t] >> (c->length - 1)) | (shreg[t] << 1);
+    uint64_t mask = c->length == 64 ? ~(uint64_t)0 : (1ull << c->length) - 1;
+    if (c->rotate && (int)(rng() % c->length) < c->rotate)
+        r ^= 1ull << (rng() % c->length);
+    shreg[t] = r & mask;
+}
+
+/* The step-on test for one step of one track, in the active algorithm. */
+static bool track_hit(int t, int pos)
+{
+    uint64_t bits = cfg.algo[t] == ALGO_SHIFT ? shreg[t] : euclid_pattern(&cfg.track[t]);
+    return (bits >> pos) & 1;
+}
+
 static void send_note(int track, uint8_t status, uint8_t note)
 {
     uint8_t channel = track < 3 ? (uint8_t)track : 9;
@@ -123,7 +176,9 @@ static void fire_step(uint32_t now)
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *c = &cfg.track[t];
         int pos = (int)(global_step % c->length);
-        if (!((euclid_pattern(c) >> pos) & 1)) continue;
+        if (cfg.algo[t] == ALGO_SHIFT && pos == 0 && global_step)
+            shift_evolve(t); /* new cycle: evolve the register */
+        if (!track_hit(t, pos)) continue;
         note_off(t);
         send_note(t, 0x90, c->note);
         active_note[t] = c->note;
@@ -261,6 +316,8 @@ static void handle_pad(int track, int pad0, bool shift)
         c->velocity = (uint8_t)(pad0 * 8 + 7);
         break;
     }
+    if (edit_mode == MODE_EUCLID && cfg.algo[track] == ALGO_SHIFT)
+        shreg[track] = euclid_seed(c); /* seed edit restarts the loop */
     cfg.selected = (uint8_t)track;
     ui_dirty = true;
 }
@@ -306,6 +363,7 @@ static void project_pad(int slot)
     switch (project_load(slot, &loaded)) {
     case SLOT_VALID:
         cfg = loaded;
+        shift_reseed();
         project_report(slot, "LOADED");
         break;
     case SLOT_EMPTY: project_report(slot, "EMPTY"); break;
@@ -325,6 +383,7 @@ static NOINLINE void handle_events(void)
                 /* New project: the workspace returns to the declared
                  * defaults; no saved slot or committed settings change. */
                 settings_defaults(&cfg);
+                shift_reseed();
                 project_report(-1, "NEW PROJECT");
             } else {
                 project_mode = !project_mode;
@@ -358,6 +417,16 @@ static NOINLINE void handle_events(void)
         case SW_BAR3: if (!project_mode) { edit_bar = 2; ui_dirty = true; } continue;
         case SW_BAR4: if (!project_mode) { edit_bar = 3; ui_dirty = true; } continue;
         case SW_LOOP: if (!project_mode) loop_toggle(); continue;
+        case SW_PATTERN:
+            if (!project_mode) { /* cycle the selected track's algorithm */
+                uint8_t algo = cfg.algo[cfg.selected] == ALGO_EUCLID
+                               ? ALGO_SHIFT : ALGO_EUCLID;
+                cfg.algo[cfg.selected] = algo;
+                if (algo == ALGO_SHIFT)
+                    shreg[cfg.selected] = euclid_seed(&cfg.track[cfg.selected]);
+                ui_dirty = true;
+            }
+            continue;
         case SW_GLOBAL: if (!project_mode) { settings_save(&cfg); ui_dirty = true; } continue;
         default: break;
         }
@@ -390,12 +459,16 @@ static NOINLINE void handle_events(void)
     if ((d = panel_encoder_take(ENC_PARAM1))) {
         int pulses = c->pulses + d;
         c->pulses = (uint8_t)(pulses < 0 ? 0 : pulses > c->length ? c->length : pulses);
+        if (cfg.algo[cfg.selected] == ALGO_SHIFT)
+            shreg[cfg.selected] = euclid_seed(c);
         ui_dirty = true;
     }
     if ((d = panel_encoder_take(ENC_PARAM2))) {
         int length = c->length + d;
         c->length = (uint8_t)(length < 1 ? 1 : length > 64 ? 64 : length);
         clamp_track(c);
+        if (cfg.algo[cfg.selected] == ALGO_SHIFT)
+            shreg[cfg.selected] = euclid_seed(c);
         ui_dirty = true;
     }
     if ((d = panel_encoder_take(ENC_PARAM3))) {
@@ -433,7 +506,8 @@ static NOINLINE void update_leds(void)
     uint32_t base = (uint32_t)edit_bar * 16; /* pads window the selected bar */
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *c = &cfg.track[t];
-        uint32_t cols = (uint32_t)((euclid_pattern(c) >> base) & 0xffffu) << 1;
+        uint64_t bits = cfg.algo[t] == ALGO_SHIFT ? shreg[t] : euclid_pattern(c);
+        uint32_t cols = (uint32_t)((bits >> base) & 0xffffu) << 1;
         if (playing) {
             uint32_t pos = (global_step ? global_step - 1 : 0) % c->length;
             if (pos >= base && pos < base + 16)
@@ -499,7 +573,7 @@ static NOINLINE void draw_ui(void)
     }
     const track_cfg_t *c = &cfg.track[cfg.selected];
     fb_clear();
-    fb_text(2, 1, "EUCLID", 15);
+    fb_text(2, 1, cfg.algo[cfg.selected] == ALGO_SHIFT ? "SHREG" : "EUCLID", 15);
     fb_number(60, 1, cfg.bpm, 12);
     fb_text(84, 1, "BPM", 8);
     fb_text(118, 1, "SWING", 8);
@@ -534,7 +608,7 @@ static NOINLINE void draw_ui(void)
         fb_number(96, 12, c->pulses, 15);
         fb_text(118, 12, "LEN", 8);
         fb_number(142, 12, c->length, 15);
-        fb_text(162, 12, "ROT", 8);
+        fb_text(162, 12, cfg.algo[cfg.selected] == ALGO_SHIFT ? "CHC" : "ROT", 8);
         fb_number(186, 12, c->rotate, 15);
         fb_text(206, 12, "NOTE", 8);
         fb_text(236, 12, NOTE_NAMES[c->note % 12], 15);
@@ -546,7 +620,7 @@ static NOINLINE void draw_ui(void)
     int base = edit_bar * 16;
     for (int t = 0; t < 4; t++) {
         const track_cfg_t *tc = &cfg.track[t];
-        uint64_t bits = euclid_pattern(tc);
+        uint64_t bits = cfg.algo[t] == ALGO_SHIFT ? shreg[t] : euclid_pattern(tc);
         int y = 24 + t * 8;
         fb_text(2, y, (const char[]){(char)('A' + t), 0}, t == cfg.selected ? 15 : 6);
         for (int k = 0; k < 16; k++) {
@@ -592,6 +666,7 @@ static void realtime_in(uint8_t byte)
 static NOINLINE void normal_main(void)
 {
     settings_load(&cfg);
+    shift_reseed();
     display_init();
     outputs_init();
     panel_init();

@@ -24,12 +24,21 @@ typedef struct {
     uint8_t mod;      /* 0..15 mod CV level while the gate is open */
 } track_cfg_t;
 
+/* Rhythm algorithm per track. EUCLID generates E(pulses, length) rotated by
+ * rotate. SHIFT runs a shift register seeded from the unrotated Euclidean
+ * pattern: it rotates one step every cycle, and each cycle flips one random
+ * bit with probability rotate/length — so rotate is the flip chance in SHIFT
+ * mode (0 = pure rotation). The register itself is RAM state, reseeded from
+ * the track's Euclidean parameters on load. */
+enum { ALGO_EUCLID, ALGO_SHIFT };
+
 typedef struct {
     uint32_t magic;
     uint16_t bpm;      /* 20..300 */
     uint8_t swing;     /* 50..75 % */
     uint8_t selected;  /* edited track 0..3 */
     track_cfg_t track[4];
+    uint8_t algo[4];   /* ALGO_* per track */
     uint32_t hash;
 } settings_t;
 
