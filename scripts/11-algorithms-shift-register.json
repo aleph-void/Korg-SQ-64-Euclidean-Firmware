@@ -1,0 +1,60 @@
+{
+ "format": "sq64-ui-script",
+ "version": 1,
+ "name": "Euclidean 11: PATTERN key and the shift-register algorithm",
+ "actions": [
+  {
+   "type": "power-on",
+   "mode": "normal"
+  },
+  {
+   "type": "wait",
+   "ms": 20000
+  },
+  {
+   "type": "press",
+   "control": "pattern",
+   "ms": 150
+  },
+  {
+   "type": "wait",
+   "ms": 1200
+  },
+  {
+   "type": "encoder",
+   "control": "param3",
+   "delta": 6
+  },
+  {
+   "type": "wait",
+   "ms": 1200
+  },
+  {
+   "type": "press",
+   "control": "play",
+   "ms": 150
+  },
+  {
+   "type": "wait",
+   "ms": 15000
+  },
+  {
+   "type": "press",
+   "control": "stop",
+   "ms": 150
+  },
+  {
+   "type": "wait",
+   "ms": 800
+  },
+  {
+   "type": "press",
+   "control": "pattern",
+   "ms": 150
+  },
+  {
+   "type": "wait",
+   "ms": 1200
+  }
+ ]
+}

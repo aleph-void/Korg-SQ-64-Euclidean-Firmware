@@ -206,8 +206,8 @@ chord('shift', 'D16');
 const leds = machine.board.panel.leds;
 check(leds.A1 > 128 && leds.C1 > 128 && leds.D16 > 128, 'saved slots 0/32/63 lit');
 const rec = machine.board.flash.data.subarray(slotAddr(0), slotAddr(0) + 40);
-check(rec[0] === 0x45 && rec[1] === 0x55 && rec[2] === 0x50 && rec[3] === 0x32,
-  'slot 0 record magic EUP2');
+check(rec[0] === 0x45 && rec[1] === 0x55 && rec[2] === 0x50 && rec[3] === 0x33,
+  'slot 0 record magic EUP3');
 check(rec[15] === 16 && rec[16] === 5, 'slot 0 record holds track B E(5,16)');
 const sectors = [0, 32, 63].map(n => [slotAddr(n), slotAddr(n) + 4096]);
 const stray = spiDiff(spiBefore, machine.board.flash.data, sectors);

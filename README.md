@@ -20,9 +20,14 @@ from stock firmware.**
 
 ## Features
 
-- Four tracks, each an independent Euclidean pattern E(pulses, length) with
-  rotation, 1–64 steps in four bars of 16 (polymetric against each other),
-  plus a per-track note, gate length, mod CV level and velocity.
+- Four tracks, each an independent pattern of 1–64 steps in four bars of 16
+  (polymetric against each other), plus a per-track note, gate length, mod CV
+  level and velocity. Each track plays one of two rhythm algorithms (PATTERN
+  cycles it): the Euclidean rhythm E(pulses, length) with rotation, or a
+  seeded shift register (a Turing-machine loop) that starts from the
+  unrotated Euclidean pattern, rotates one step every cycle and flips a
+  random bit each cycle with chance `rotate`/`length` — `rotate` is the flip
+  chance there (0 = a purely rotating loop).
 - Tracks A/B/C: gate jack, pitch CV, mod CV and MIDI notes on channels 1–3.
   Track D: trigger jack 1 and MIDI notes on channel 10.
 - Tempo 20–300 BPM with tap tempo, swing 50–75 %, MIDI clock/start/stop out,
@@ -74,10 +79,11 @@ from stock firmware.**
 | PITCH / GATE / MOD / CONTROL | Toggle that edit mode (same key again returns to EUCLID) |
 | 1 2 3 4 | Select the bar the pads address (pad *n* = step (bar−1)×16+*n*) |
 | LOOP | Toggle a loop over the selected bar of the selected track's pattern |
+| PATTERN | Cycle the selected track's algorithm: EUCLID ↔ SHREG (display header shows the active one) |
 | Pad *n* (any bank) | EUCLID: pulses = selected step. PITCH: note 36+*n*−1. GATE: 5+(*n*−1)×6 %. MOD: level *n*−1. CONTROL: velocity (*n*−1)×8+7 |
 | SHIFT + pad *n* | EUCLID mode only: set that track's length to the selected step |
 | Tempo / swing encoders | BPM / swing |
-| Param 1–4 encoders | Pulses, length, rotation, note |
+| Param 1–4 encoders | Pulses, length, rotation (flip chance in SHREG), note |
 | GLOBAL | Commit settings to SPI flash |
 | PROJECT | Enter / leave project mode |
 | SHIFT + PROJECT | New project: workspace back to the declared defaults |
@@ -159,7 +165,9 @@ make smoke      # 2M instructions, report in build/smoke.json
   The edit-key section covers the panel-key requirements headlessly:
   track, mode, bar and loop keys are selection-only (zero flash writes), and
   pad edits land on the selected track through the active mode and bar,
-  verified in the committed settings.
+  verified in the committed settings. The algorithm section covers the
+  PATTERN key: selection-only cycling, a SHIFT track still playing, and the
+  committed per-track algorithm byte.
   Project mode runs against this engine's 1 MiB SPI model: the JEDEC
   capacity probe must confine the catalog to slot 0 (the model faults any
   out-of-range address), which is saved, loaded back, deleted and
@@ -190,8 +198,8 @@ make smoke      # 2M instructions, report in build/smoke.json
 | --- | --- |
 | Internal flash 0x00200000 + 64 KiB | This firmware (VSB payload 0x00000) |
 | SPI 0x00000–0x30000 | Installed-image regions; written only by the updater during a host-initiated installation |
-| SPI 0x40000 (one 4 KiB sector) | Committed settings (magic `EUC2`, FNV-1a checked); rewritten only when contents change |
-| SPI 0xc0000–0x1000000 | The board contract's 64 saved-project slots, 0x3d000 apart. A project record (magic `EUP2`, FNV-1a checked) occupies only the first 4 KiB sector of its slot, written solely by an explicit save or delete in project mode. **This is the same catalog stock firmware keeps its saved projects in**, so saving over a slot overwrites whatever a stock project left there — back up first (see HARDWARE.md) |
+| SPI 0x40000 (one 4 KiB sector) | Committed settings (magic `EUC3`, FNV-1a checked); rewritten only when contents change |
+| SPI 0xc0000–0x1000000 | The board contract's 64 saved-project slots, 0x3d000 apart. A project record (magic `EUP3`, FNV-1a checked) occupies only the first 4 KiB sector of its slot, written solely by an explicit save or delete in project mode. **This is the same catalog stock firmware keeps its saved projects in**, so saving over a slot overwrites whatever a stock project left there — back up first (see HARDWARE.md) |
 | Everything else | Never written |
 
 A save erases and reprograms one 4 KiB sector; an interruption between the
@@ -210,9 +218,18 @@ content are drawn from scratch. Licensed under the MIT License (see LICENSE).
 
 ## Known limits
 
+- The record format moved from `EUC2`/`EUP2` to `EUC3`/`EUP3` (the
+  per-track algorithm byte): settings previously committed by a 1.0 image
+  fall back to the defaults on load, and slots saved by 1.0 report INVALID
+  and are never loaded. Save them again from a 1.0 image first if they
+  matter.
+- A SHREG track's live register is RAM state: it is reseeded from the
+  track's Euclidean parameters on boot, project load and seed edits, so a
+  power cycle replays the same evolution from the same seed (the bit-flip
+  source is a deterministic xorshift).
 - The stock backup/restore SysEx transport is not implemented; settings and
   the saved-project slots are this firmware's only persistent data. Project
-  records use this firmware's own compact format (`EUP2`), stored at the
+  records use this firmware's own compact format (`EUP3`), stored at the
   stock catalog's slot addresses — stock firmware cannot read them, nor this
   firmware stock projects (a stock-written slot shows as INVALID and is never
   loaded).

@@ -9,8 +9,10 @@
 
 int memcmp(const void *a, const void *b, size_t n); /* startup.c */
 
-#define SETTINGS_MAGIC 0x32435545u /* "EUC2" */
-#define PROJECT_MAGIC  0x32505545u /* "EUP2" */
+/* "EUC3"/"EUP3": version 3 of the record format (v2 lacked the per-track
+ * algorithm byte; its records are rejected as invalid rather than loaded). */
+#define SETTINGS_MAGIC 0x33435545u
+#define PROJECT_MAGIC  0x33505545u
 
 static void cs(bool selected)
 {
@@ -100,7 +102,10 @@ void settings_defaults(settings_t *s)
     s->bpm = 120;
     s->swing = 50;
     s->selected = 0;
-    for (int t = 0; t < 4; t++) s->track[t] = defaults[t];
+    for (int t = 0; t < 4; t++) {
+        s->track[t] = defaults[t];
+        s->algo[t] = ALGO_EUCLID;
+    }
     s->hash = settings_hash(s);
 }
 
@@ -116,6 +121,7 @@ static bool record_valid(const settings_t *s, uint32_t magic)
             || c->gate_pct < 5 || c->gate_pct > 95
             || c->velocity < 1 || c->velocity > 127 || c->mod > 15)
             return false;
+        if (s->algo[t] > ALGO_SHIFT) return false;
     }
     return true;
 }

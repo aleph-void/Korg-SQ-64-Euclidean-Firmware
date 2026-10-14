@@ -31,10 +31,11 @@ off.
 | `04-four-track-polymeter.json` | Four independent E(pulses, length) tracks with different lengths | A=E(5,8), B=E(3,13), C=E(7,16), D=E(2,4) drifting against each other; track D fires the trigger indicators, A–C the gate/CV ones |
 | `05-midi-remote-start-stop.json` | MIDI start (0xFA) / stop (0xFC) input | Transport starts and stops with no button press |
 | `06-save-and-persistence.json` | GLOBAL settings commit, power-button shutdown, persistence | Sets track B to 9 pulses, commits, powers off, reboots: track B comes back selected with 9 pulses |
-| `07-version-mode.json` | GLOBAL boot chord, PLAY continues boot | `EUCLID SQ-64 / VERSION 1.0 / ORIGINAL EUCLIDEAN FIRMWARE / PRESS PLAY TO CONTINUE` with the PLAY LED lit; pressing PLAY resumes the normal boot to the sequencer screen, then a clean power-off |
+| `07-version-mode.json` | GLOBAL boot chord, PLAY continues boot | `EUCLID SQ-64 / VERSION 1.1 / ORIGINAL EUCLIDEAN FIRMWARE / PRESS PLAY TO CONTINUE` with the PLAY LED lit; pressing PLAY resumes the normal boot to the sequencer screen, then a clean power-off |
 | `08-update-mode-install.json` | GLOBAL+PATTERN boot chord and the full VUP self-updater | See below |
 | `09-project-management.json` | Project mode: save, load, empty-slot report, delete, new project | Pads become the 64 slot selectors (lit = saved): B7 is saved to slot A1 and D16, loading empty B3 reports `B3 EMPTY`, the pattern is edited away and loading A1 brings it back, RECORD+D16 deletes, SHIFT+PROJECT resets the workspace to defaults |
 | `10-modes-loop-bars.json` | The panel-key requirements: PITCH/GATE/MOD/CONTROL edit modes, bar selection, the loop | Each mode key lights its LED and the pads retarget one parameter of track B (note, gate %, mod level — watch the B MOD indicator jump to full — velocity); key 2 selects bar 2 and SHIFT+B4 stretches the pattern to 20 steps; LOOP pins playback inside that bar until cleared; key 1 returns to bar 1 |
+| `11-algorithms-shift-register.json` | PATTERN key cycling track A's rhythm algorithm, the seeded shift register | Header flips `EUCLID` → `SHREG` and ROT becomes `CHC` (flip chance); playing, track A's lane starts as its E(4,16) seed, rotates one step each cycle and mutates a bit now and then — a Turing-machine loop; PATTERN again returns to `EUCLID` |
 
 ## Notes on script 08 (updater)
 

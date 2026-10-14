@@ -13,6 +13,10 @@ The edit-key section covers the spec panel-key requirements headlessly:
 track/mode/bar/loop keys are selection-only (zero flash writes), and pad
 edits land on the selected track through the active mode and bar.
 
+The algorithm section covers the PATTERN key: cycling the selected track's
+rhythm algorithm (Euclidean or the seeded shift register) is selection-only,
+a SHIFT track still plays, and the choice persists through a GLOBAL commit.
+
 Project mode is exercised against this engine's 1 MiB SPI model, where only
 saved-project slot 0 fits: the JEDEC capacity probe must keep the firmware
 inside the part (the model faults any out-of-range address), slot 0 must
@@ -168,7 +172,7 @@ def test_project_mode(image):
     set_row(h, 0, 0)
     set_row(h, 7, 0)
     record = bytes(flash.data[PROJECT_SLOT0:PROJECT_SLOT0 + 32])
-    expect(record[:4] == b'EUP2', 'slot 0 holds a project record')
+    expect(record[:4] == b'EUP3', 'slot 0 holds a project record')
     expect(record[8 + 7] == 16 and record[8 + 7 + 1] == 7,
            'saved record carries the edited workspace (track B E(7,16))')
     changed = {i for i, (a, b) in enumerate(zip(before, bytes(flash.data))) if a != b}
@@ -199,7 +203,7 @@ def test_project_mode(image):
     set_row(h, 6, 1 << 18)  # GLOBAL commit
     set_row(h, 6, 0, 1200000)
     settings = bytes(flash.data[SETTINGS_ADDR:SETTINGS_ADDR + 32])
-    expect(settings[:4] == b'EUC2' and settings[8 + 7] == 16 and settings[8 + 7 + 1] == 7,
+    expect(settings[:4] == b'EUC3' and settings[8 + 7] == 16 and settings[8 + 7 + 1] == 7,
            'loaded project restored the workspace (committed settings match)')
 
     # RECORD (row 1, bit 0) + pad A1 deletes slot 0.
@@ -269,11 +273,52 @@ def test_edit_keys(image):
     set_row(h, 6, 1 << 18)   # GLOBAL commit
     set_row(h, 6, 0, 1200000)
     s = bytes(flash.data[SETTINGS_ADDR:SETTINGS_ADDR + 40])
-    expect(s[:4] == b'EUC2', 'settings committed')
+    expect(s[:4] == b'EUC3', 'settings committed')
     expect(s[8] == 20 and s[8 + 3] == 40,
            'pitch-mode and bar-2 pad edits landed on track A (len 20, note 40)')
     expect(s[15] == 16 and s[16] == 3,
            'track B kept its defaults: edits followed the selection only')
+
+
+def test_algorithms(image):
+    """PATTERN (row 7, bit 18) cycles the selected track's rhythm algorithm:
+    selection alone writes nothing, a SHIFT track still plays, and the
+    committed record carries the per-track algorithm byte."""
+    print('-- pattern key and the shift-register algorithm')
+    h = boot(image)
+    h.run(1500000)
+    flash = h.machine.board.flash
+
+    # PATTERN alone is selection-only: EUCLID -> SHIFT -> EUCLID.
+    writes = flash.writes
+    set_row(h, 7, 1 << 18)
+    set_row(h, 7, 0)
+    set_row(h, 7, 1 << 18)
+    set_row(h, 7, 0)
+    expect(flash.writes == writes, 'PATTERN alone writes nothing')
+
+    # A SHIFT track still plays: switch track A, start, note-ons flow
+    # (rotate 0 = pure rotation, the seed E(4,16) keeps firing).
+    set_row(h, 0, 1 << 17)   # track A
+    set_row(h, 0, 0)
+    set_row(h, 7, 1 << 18)   # to SHIFT
+    set_row(h, 7, 0)
+    h.din_bytes()
+    data = h.exchange([0xFA], 3000000)
+    expect(any(0x90 <= b <= 0x99 for b in data), 'SHIFT track still emits note-ons')
+    h.exchange([0xFC], 500000)
+
+    # The algorithm choice persists: track B to SHIFT, GLOBAL commit.
+    set_row(h, 0, 1 << 16)   # track B
+    set_row(h, 0, 0)
+    set_row(h, 7, 1 << 18)   # to SHIFT
+    set_row(h, 7, 0)
+    set_row(h, 6, 1 << 18)   # GLOBAL commit
+    set_row(h, 6, 0, 1200000)
+    s = bytes(flash.data[SETTINGS_ADDR:SETTINGS_ADDR + 44])
+    expect(s[:4] == b'EUC3' and s[37] == 1
+           and s[36] == 0 and s[38] == 0 and s[39] == 0,
+           'committed record carries track B on the SHIFT algorithm')
 
 
 def test_version_mode(image):
@@ -281,7 +326,7 @@ def test_version_mode(image):
     h = boot(image, {6: 1 << 18})
     h.run(400000)
     replies = sysex_frames(h.exchange(frame(0x02, [0x00])))
-    expect(any(f[6] == 0x03 and f[7:9] == [1, 0] for f in replies), 'version reply 1.0')
+    expect(any(f[6] == 0x03 and f[7:9] == [1, 1] for f in replies), 'version reply 1.1')
     replies = sysex_frames(h.exchange(frame(0x04, [0] * 16)))
     expect(any(f[6] == 0x05 and f[7] != 0 for f in replies), 'begin rejected outside update mode')
 
@@ -353,6 +398,7 @@ def main():
     image = args.image.read_bytes()
     test_normal_mode(image)
     test_edit_keys(image)
+    test_algorithms(image)
     test_project_mode(image)
     test_version_mode(image)
     test_update_mode(image)
