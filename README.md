@@ -1,5 +1,7 @@
 # Euclidean — original SQ-64 firmware
 
+[![Sponsor Aleph Void](https://img.shields.io/badge/Sponsor-Aleph%20Void-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/aleph-void)
+
 A from-scratch firmware for the Korg SQ-64 hardware sequencer that replaces
 the stock sequencer with a four-track **Euclidean rhythm sequencer**. It is
 written entirely from the interface facts published by the independent
